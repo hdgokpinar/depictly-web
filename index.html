@@ -55,7 +55,7 @@
 <!-- Main Menu -->
 <section id="menu" aria-label="Main menu">
   <h1>Welcome to Depictly</h1>
-  <p>A simple, fast, and clean drawing app for web.</p>
+  <p>A simple, fast, and clean drawing app for the web.</p>
   <div>
     <button class="menu-btn" onclick="showApp()">Start Drawing</button>
   </div>
@@ -107,4 +107,184 @@
 <section id="overlay" style="display:none;position:fixed;inset:0;
 background:rgba(0,0,0,.85);color:white;z-index:10;align-items:center;justify-content:center;
 text-align:center;padding:24px;">
-  <div
+  <div id="overlayContent" style="max-width:760px"></div>
+  <button style="margin-top:20px;padding:10px 16px;cursor:pointer;border:none;
+  border-radius:8px;background:var(--accent);color:#071333;font-weight:700"
+  onclick="closeOverlay()">Close</button>
+</section>
+
+<script>
+/* Menu / Overlay controls (global) */
+function showApp(){
+  document.getElementById('menu').style.display='none';
+  document.getElementById('appWrap').style.display='block';
+  document.getElementById('overlay').style.display='none';
+}
+function showHelp(){
+  const ov = document.getElementById('overlay');
+  ov.style.display='flex';
+  document.getElementById('overlayContent').innerHTML =
+    "<h2>Help</h2><p>Select a color and brush size, then draw with mouse, pen, or touch.<br>" +
+    "Use the Eraser to remove lines. Undo/Redo are available.<br>" +
+    "Save PNG downloads your drawing.</p>";
+}
+function showAbout(){
+  const ov = document.getElementById('overlay');
+  ov.style.display='flex';
+  document.getElementById('overlayContent').innerHTML =
+    "<h2>About Depictly</h2><p>Depictly is a simple online drawing app focused on speed and clarity. " +
+    "It works without installing anything and supports mouse, pen, and touch.</p>";
+}
+function closeOverlay(){ document.getElementById('overlay').style.display='none'; }
+</script>
+
+<script>
+/* Drawing engine with hi-DPI, true eraser, capped history, pointer events */
+(() => {
+  const canvas = document.getElementById('draw');
+  const ctx = canvas.getContext('2d', { desynchronized: true });
+
+  const colorEl = document.getElementById('color');
+  const sizeEl  = document.getElementById('size');
+  const sizeVal = document.getElementById('sizeVal');
+  const eraserEl= document.getElementById('eraser');
+  const undoEl  = document.getElementById('undo');
+  const redoEl  = document.getElementById('redo');
+  const clearEl = document.getElementById('clear');
+  const saveEl  = document.getElementById('save');
+
+  // Logical canvas size
+  const INTERNAL_W = canvas.width || 1024;
+  const INTERNAL_H = canvas.height || 768;
+
+  // Hi-DPI scaling (crisp lines on Retina)
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width  = INTERNAL_W * dpr;
+  canvas.height = INTERNAL_H * dpr;
+  canvas.style.width  = INTERNAL_W + 'px';
+  canvas.style.height = 'auto';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // State
+  let drawing = false;
+  let erasing = false;
+  let brushColor = colorEl.value;
+  let brushSize  = parseInt(sizeEl.value, 10);
+
+  // History (fast ImageData snapshots)
+  const MAX_HISTORY = 30;
+  let history = [];
+  let step = -1;
+
+  function snapshot() {
+    history = history.slice(0, step + 1);
+    history.push(ctx.getImageData(0, 0, INTERNAL_W, INTERNAL_H));
+    if (history.length > MAX_HISTORY) history.shift();
+    step = history.length - 1;
+  }
+  function restore(idx) {
+    if (idx < 0 || idx >= history.length) return;
+    ctx.putImageData(history[idx], 0, 0);
+  }
+
+  // Init
+  ctx.clearRect(0, 0, INTERNAL_W, INTERNAL_H);
+  snapshot();
+
+  // Helpers
+  function posFromEvent(e) {
+    const r = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (INTERNAL_W / r.width),
+      y: (e.clientY - r.top)  * (INTERNAL_H / r.height)
+    };
+  }
+  function beginStroke(pt) {
+    drawing = true;
+    ctx.beginPath();
+    ctx.moveTo(pt.x, pt.y);
+    ctx.lineWidth = brushSize;
+    ctx.strokeStyle = erasing ? 'rgba(0,0,0,1)' : brushColor;
+    ctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
+  }
+  function moveStroke(pt) {
+    if (!drawing) return;
+    ctx.lineWidth = brushSize;
+    ctx.lineTo(pt.x, pt.y);
+    ctx.stroke();
+  }
+  function endStroke() {
+    if (!drawing) return;
+    drawing = false;
+    ctx.closePath();
+    snapshot();
+  }
+
+  // Unified pointer events (mouse/pen/touch)
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    beginStroke(posFromEvent(e));
+  });
+  canvas.addEventListener('pointermove', (e) => moveStroke(posFromEvent(e)));
+  canvas.addEventListener('pointerup',   ()  => endStroke());
+  canvas.addEventListener('pointercancel',() => endStroke());
+  canvas.addEventListener('pointerleave', () => endStroke());
+
+  // Controls
+  colorEl.oninput = e => {
+    brushColor = e.target.value;
+    if (!erasing) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = brushColor;
+    }
+  };
+  sizeEl.oninput = e => {
+    brushSize = parseInt(e.target.value, 10);
+    if (sizeVal) sizeVal.textContent = `${brushSize} px`;
+  };
+  eraserEl.onclick = () => {
+    erasing = !erasing;
+    eraserEl.textContent = `Eraser: ${erasing ? 'On' : 'Off'}`;
+    eraserEl.setAttribute('aria-pressed', erasing ? 'true' : 'false');
+  };
+
+  undoEl.onclick = () => {
+    if (step > 0) { step--; restore(step); }
+  };
+  redoEl.onclick = () => {
+    if (step < history.length - 1) { step++; restore(step); }
+  };
+  clearEl.onclick = () => {
+    ctx.clearRect(0, 0, INTERNAL_W, INTERNAL_H);
+    snapshot();
+  };
+
+  // Save (export at logical resolution)
+  saveEl.onclick = () => {
+    const out = document.createElement('canvas');
+    out.width = INTERNAL_W; out.height = INTERNAL_H;
+    const octx = out.getContext('2d');
+    octx.drawImage(canvas, 0, 0, out.width, out.height);
+    const url = out.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url; a.download = 'depictly_drawing.png'; a.click();
+  };
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    if (mod && !e.shiftKey && key === 'z') { e.preventDefault(); undoEl.click(); }
+    if (mod && ( (e.shiftKey && key === 'z') || key === 'y')) { e.preventDefault(); redoEl.click(); }
+  });
+
+  // Show menu on load, app hidden
+  document.getElementById('menu').style.display = 'flex';
+  document.getElementById('appWrap').style.display = 'none';
+  document.getElementById('overlay').style.display = 'none';
+})();
+</script>
+</body>
+</html>
