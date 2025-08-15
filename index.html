@@ -1,210 +1,256 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2822
-\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
-\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Depictly</title>
+<style>
+  :root{
+    --bg:#0e1126; --panel:#171b34; --muted:#232a57; --text:#e9edff; --accent:#7aa2ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:linear-gradient(180deg,#0b0e1a,#141a3f);color:var(--text)}
+  header{padding:14px 18px;text-align:center;font-weight:700;letter-spacing:.3px}
 
-\f0\fs24 \cf0 <!DOCTYPE html>\
-<html lang="en">\
-<head>\
-<meta charset="utf-8" />\
-<meta name="viewport" content="width=device-width,initial-scale=1" />\
-<title>Depictly \'96 Shoe Blueprint</title>\
-<style>\
-  :root\{--bg:#0e1126;--panel:#151a38;--muted:#232a57;--text:#e9edff;--accent:#7aa2ff;\}\
-  *\{box-sizing:border-box\}body\{margin:0;background:linear-gradient(180deg,#0b0e1a,#141a3f);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif;color:var(--text)\}\
-  .wrap\{max-width:1100px;margin:24px auto;padding:16px\}\
-  .bar\{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--panel);border:1px solid #1f2550;border-radius:14px;padding:10px 12px;box-shadow:0 6px 22px rgba(0,0,0,.35)\}\
-  .seg\{display:flex;gap:8px;align-items:center;background:#111638;border:1px solid #20265a;padding:6px 8px;border-radius:12px\}\
-  label\{font-size:13px;opacity:.9\}\
-  .btn\{background:var(--muted);color:var(--text);border:none;border-radius:10px;padding:8px 12px;font-weight:600;cursor:pointer;transition:.2s\}\
-  .btn:hover\{filter:brightness(1.12)\}\
-  .btn.primary\{background:var(--accent);color:#0a0f2e\}\
-  input[type="range"]\{width:140px\}\
-  #stage\{position:relative;margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35)\}\
-  .layer\{display:block;width:100%;height:auto;image-rendering:crisp-edges\}\
-  .tip\{color:#c6d4ff;font-size:12px;opacity:.8;margin-top:10px;text-align:right\}\
-</style>\
-</head>\
-<body>\
-<div class="wrap">\
-  <div class="bar" role="toolbar" aria-label="Drawing controls">\
-    <div class="seg" title="Brush color">\
-      <label for="color">Color</label>\
-      <input id="color" type="color" value="#111111" />\
-    </div>\
-\
-    <div class="seg" title="Brush size">\
-      <label for="size">Size</label>\
-      <input id="size" type="range" min="1" max="48" value="8" />\
-      <span id="sizeVal">8 px</span>\
-    </div>\
-\
-    <div class="seg" title="Eraser">\
-      <button id="eraser" class="btn">Eraser: Off</button>\
-    </div>\
-\
-    <div class="seg" title="Undo/Redo">\
-      <button id="undo" class="btn">Undo</button>\
-      <button id="redo" class="btn">Redo</button>\
-    </div>\
-\
-    <div class="seg" title="Blueprint visibility">\
-      <button id="bpToggle" class="btn">Blueprint: On</button>\
-      <label for="bpOpacity">Opacity</label>\
-      <input id="bpOpacity" type="range" min="0" max="100" value="35" />\
-      <span id="bpOpacityVal">35%</span>\
-    </div>\
-\
-    <div class="seg" title="Canvas actions">\
-      <button id="clear" class="btn">Clear</button>\
-      <button id="saveAll" class="btn primary">Save (with blueprint)</button>\
-      <button id="saveDraw" class="btn">Save (drawing only)</button>\
-    </div>\
-  </div>\
-\
-  <div id="stage">\
-    <!-- bottom blueprint + top drawing -->\
-    <canvas id="bp" class="layer" width="1024" height="768" aria-hidden="true"></canvas>\
-    <canvas id="draw" class="layer" width="1024" height="768"></canvas>\
-  </div>\
-\
-  <div class="tip">Tip: Works with mouse, pen, or touch. Hi-DPI ready.</div>\
-</div>\
-\
-<script>\
-(()=> \{\
-  const INTERNAL_W=1024, INTERNAL_H=768, MAX_HISTORY=25;\
-\
-  const bpCanvas=document.getElementById('bp');\
-  const drawCanvas=document.getElementById('draw');\
-  const colorInp=document.getElementById('color');\
-  const sizeInp=document.getElementById('size');\
-  const sizeVal=document.getElementById('sizeVal');\
-  const eraserBtn=document.getElementById('eraser');\
-  const undoBtn=document.getElementById('undo');\
-  const redoBtn=document.getElementById('redo');\
-  const clearBtn=document.getElementById('clear');\
-  const saveAllBtn=document.getElementById('saveAll');\
-  const saveDrawBtn=document.getElementById('saveDraw');\
-  const bpToggleBtn=document.getElementById('bpToggle');\
-  const bpOpacityInp=document.getElementById('bpOpacity');\
-  const bpOpacityVal=document.getElementById('bpOpacityVal');\
-\
-  const bpCtx=bpCanvas.getContext('2d',\{desynchronized:true\});\
-  const ctx=drawCanvas.getContext('2d',\{desynchronized:true\});\
-\
-  // Hi-DPI scale (keeps internal res crisp)\
-  const dpr=Math.max(1, window.devicePixelRatio||1);\
-  [bpCanvas, drawCanvas].forEach(c=>\{\
-    c.width=INTERNAL_W*dpr; c.height=INTERNAL_H*dpr;\
-    c.style.width=INTERNAL_W+'px'; c.style.height='auto';\
-    const k=c.getContext('2d'); k.setTransform(dpr,0,0,dpr,0,0);\
-    k.lineCap='round'; k.lineJoin='round';\
-  \});\
-\
-  // Load blueprint (shoe)\
-  const bpImg=new Image();\
-  bpImg.src='blueprints/shoe_blueprint.png';\
-  bpImg.onload=()=>renderBlueprint();\
-  bpImg.onerror=()=>\{\
-    bpCtx.clearRect(0,0,INTERNAL_W,INTERNAL_H);\
-    bpCtx.fillStyle='#0d1030'; bpCtx.fillRect(0,0,INTERNAL_W,INTERNAL_H);\
-    bpCtx.fillStyle='#7aa2ff'; bpCtx.font='20px system-ui,sans-serif';\
-    bpCtx.fillText('Blueprint not found at: blueprints/shoe_blueprint.png',22,40);\
-  \};\
-\
-  function renderBlueprint()\{\
-    bpCtx.clearRect(0,0,INTERNAL_W,INTERNAL_H);\
-    const iw=bpImg.naturalWidth, ih=bpImg.naturalHeight;\
-    const s=Math.min(INTERNAL_W/iw, INTERNAL_H/ih);\
-    const dw=iw*s, dh=ih*s, dx=(INTERNAL_W-dw)/2, dy=(INTERNAL_H-dh)/2;\
-    bpCtx.drawImage(bpImg, dx, dy, dw, dh);\
-  \}\
-\
-  // Drawing state\
-  let drawing=false, erasing=false, brushSize=parseInt(sizeInp.value,10);\
-  let brushColor=colorInp.value;\
-\
-  // History (undo/redo)\
-  const hist=[], redo=[];\
-  function pushHistory()\{\
-    if(hist.length>=MAX_HISTORY) hist.shift();\
-    hist.push(ctx.getImageData(0,0,INTERNAL_W,INTERNAL_H));\
-    redo.length=0;\
-  \}\
-  function restore(img)\{ ctx.putImageData(img,0,0); \}\
-\
-  // init blank\
-  ctx.clearRect(0,0,INTERNAL_W,INTERNAL_H);\
-  pushHistory();\
-\
-  // Controls\
-  colorInp.addEventListener('input',e=>\{\
-    brushColor=e.target.value;\
-    if(!erasing) ctx.globalCompositeOperation='source-over';\
-    ctx.strokeStyle=brushColor;\
-  \});\
-  sizeInp.addEventListener('input',e=>\{\
-    brushSize=parseInt(e.target.value,10);\
-    sizeVal.textContent=brushSize+' px';\
-  \});\
-  eraserBtn.addEventListener('click',()=>\{\
-    erasing=!erasing;\
-    eraserBtn.textContent='Eraser: '+(erasing?'On':'Off');\
-    ctx.globalCompositeOperation=erasing?'destination-out':'source-over';\
-  \});\
-  bpToggleBtn.addEventListener('click',()=>\{\
-    const on=bpCanvas.style.display!=='none';\
-    bpCanvas.style.display=on?'none':'block';\
-    bpToggleBtn.textContent='Blueprint: '+(on?'Off':'On');\
-  \});\
-  bpOpacityInp.addEventListener('input',e=>\{\
-    const v=parseInt(e.target.value,10); bpCanvas.style.opacity=(v/100).toString();\
-    bpOpacityVal.textContent=v+'%';\
-  \});\
-  clearBtn.addEventListener('click',()=>\{ ctx.clearRect(0,0,INTERNAL_W,INTERNAL_H); pushHistory(); \});\
-  undoBtn.addEventListener('click',()=>\{ if(hist.length>1)\{ const cur=hist.pop(); redo.push(cur); restore(hist[hist.length-1]); \}\});\
-  redoBtn.addEventListener('click',()=>\{ if(redo.length)\{ const st=redo.pop(); hist.push(st); restore(st); \}\});\
-\
-  // Pointer drawing\
-  function pointerPos(e)\{\
-    const r=drawCanvas.getBoundingClientRect();\
-    return \{ x:(e.clientX-r.left)*(INTERNAL_W/r.width),\
-             y:(e.clientY-r.top)*(INTERNAL_H/r.height) \};\
-  \}\
-  function start(e)\{\
-    drawing=true; const p=pointerPos(e);\
-    ctx.beginPath(); ctx.moveTo(p.x,p.y);\
-    ctx.lineWidth=brushSize; ctx.strokeStyle=erasing?'rgba(0,0,0,1)':brushColor;\
-  \}\
-  function move(e)\{\
-    if(!drawing) return;\
-    const p=pointerPos(e); ctx.lineWidth=brushSize; ctx.lineTo(p.x,p.y); ctx.stroke();\
-  \}\
-  function end()\{ if(!drawing) return; drawing=false; ctx.closePath(); pushHistory(); \}\
-\
-  drawCanvas.addEventListener('pointerdown',start);\
-  drawCanvas.addEventListener('pointermove',move);\
-  window.addEventListener('pointerup',end);\
-  drawCanvas.addEventListener('pointerleave',end);\
-\
-  // Save helpers\
-  function download(url,name)\{ const a=document.createElement('a'); a.href=url; a.download=name; a.click(); \}\
-  document.getElementById('saveDraw').addEventListener('click',()=>download(drawCanvas.toDataURL('image/png'),'depictly_drawing.png'));\
-  document.getElementById('saveAll').addEventListener('click',()=>\{\
-    const out=document.createElement('canvas'); out.width=INTERNAL_W; out.height=INTERNAL_H; const x=out.getContext('2d');\
-    // blueprint (respect opacity + visibility)\
-    if(bpCanvas.style.display!=='none')\{ const op=parseFloat(getComputedStyle(bpCanvas).opacity||'1'); x.globalAlpha=op; x.drawImage(bpCanvas,0,0,INTERNAL_W,INTERNAL_H); \}\
-    x.globalAlpha=1; x.drawImage(drawCanvas,0,0,INTERNAL_W,INTERNAL_H);\
-    download(out.toDataURL('image/png'),'depictly_with_blueprint.png');\
-  \});\
-\
-  // Re-render blueprint on resize DPR switches (optional)\
-  window.matchMedia(`(resolution: $\{dpr\}dppx)`).addEventListener?.('change',()=>\{ renderBlueprint(); \});\
-\})();\
-</script>\
-</body>\
-</html>\
+  /* Main Menu */
+  #menu {
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    height:100vh;gap:20px;text-align:center;
+  }
+  #menu h1 { font-size:2.2em; }
+  .menu-btn {
+    background:var(--accent);color:#0a0f2e;padding:12px 20px;
+    border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:1em;
+    min-width:160px;transition:.2s
+  }
+  .menu-btn:hover{filter:brightness(1.15)}
+
+  /* Wrap for the app */
+  .wrap{max-width:1100px;margin:0 auto;padding:12px;display:none}
+  .toolbar{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    background:var(--panel);border:1px solid #1f2550;border-radius:14px;
+    padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35)
+  }
+  .seg{display:flex;align-items:center;gap:8px;background:#111739;
+    border:1px solid #222a61;padding:6px 8px;border-radius:12px;}
+  label{font-size:13px;opacity:.9}
+  input[type="range"]{width:140px}
+  .btn{background:var(--muted);color:var(--text);border:none;border-radius:10px;
+    padding:8px 12px;font-weight:600;cursor:pointer;transition:.2s}
+  .btn:hover{filter:brightness(1.12)}
+  .btn.primary{background:var(--accent);color:#0a0f2e}
+  .stage{margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;
+    overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative}
+  canvas{display:block;width:100%;height:auto;touch-action:none}
+  .footer{display:flex;justify-content:space-between;gap:10px;align-items:center;
+    color:#cbd7ff;opacity:.85;font-size:12px;margin:10px 4px 2px 4px}
+  .kbd{background:#0d1230;border:1px solid #253070;border-radius:6px;padding:2px 6px}
+  @media (max-width:640px){ input[type="range"]{width:100px} }
+</style>
+</head>
+<body>
+<header>Depictly</header>
+
+<!-- Main Menu -->
+<div id="menu">
+  <h1>Welcome to Depictly</h1>
+  <p>A simple online drawing tool</p>
+  <button class="menu-btn" onclick="showApp()">Start Drawing</button>
+  <button class="menu-btn" onclick="showHelp()">Help</button>
+  <button class="menu-btn" onclick="showAbout()">About</button>
+</div>
+
+<!-- App -->
+<div class="wrap" id="appWrap">
+  <div class="toolbar">
+    <div class="seg">
+      <label for="color">Color</label>
+      <input id="color" type="color" value="#111111" />
+    </div>
+    <div class="seg">
+      <label for="size">Size</label>
+      <input id="size" type="range" min="1" max="48" value="8" />
+      <span id="sizeVal">8 px</span>
+    </div>
+    <div class="seg">
+      <button id="eraser" class="btn">Eraser: Off</button>
+    </div>
+    <div class="seg">
+      <button id="undo" class="btn">Undo</button>
+      <button id="redo" class="btn">Redo</button>
+    </div>
+    <div class="seg">
+      <button id="clear" class="btn">Clear</button>
+      <button id="save" class="btn primary">Save PNG</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <canvas id="draw" width="1024" height="768"></canvas>
+  </div>
+
+  <div class="footer">
+    <div>Draw with mouse, pen, or touch</div>
+    <div>Shortcuts: <span class="kbd">⌘/Ctrl + Z</span> Undo, <span class="kbd">⌘/Ctrl + Y</span> Redo</div>
+  </div>
+</div>
+
+<!-- Help/About Modals -->
+<div id="overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+background:rgba(0,0,0,.8);color:white;z-index:10;align-items:center;justify-content:center;
+text-align:center;padding:20px;">
+  <div id="overlayContent"></div>
+  <button style="margin-top:20px;padding:10px 16px;cursor:pointer;border:none;
+  border-radius:8px;background:var(--accent);" onclick="closeOverlay()">Close</button>
+</div>
+
+<script>
+function showApp(){
+  document.getElementById('menu').style.display='none';
+  document.getElementById('appWrap').style.display='block';
 }
+function showHelp(){
+  document.getElementById('overlayContent').innerHTML = "<h2>Help</h2><p>Choose a color and brush size, then click and drag to draw. Use Eraser to remove lines. Undo/Redo are available. Save PNG downloads your drawing.</p>";
+  document.getElementById('overlay').style.display='flex';
+}
+function showAbout(){
+  document.getElementById('overlayContent').innerHTML = "<h2>About Depictly</h2><p>Depictly is a simple online drawing app built for creativity and ease-of-use. It works on desktops, tablets, and phones without any installation.</p>";
+  document.getElementById('overlay').style.display='flex';
+}
+function closeOverlay(){
+  document.getElementById('overlay').style.display='none';
+}
+</script>
+
+<script>
+// Drawing logic (same as before)
+(()=> {
+  const INTERNAL_W = 1024, INTERNAL_H = 768, MAX_HISTORY = 25;
+  const canvas = document.getElementById('draw');
+  const ctx = canvas.getContext('2d', { desynchronized: true });
+
+  const colorInp = document.getElementById('color');
+  const sizeInp  = document.getElementById('size');
+  const sizeVal  = document.getElementById('sizeVal');
+  const eraserBtn= document.getElementById('eraser');
+  const undoBtn  = document.getElementById('undo');
+  const redoBtn  = document.getElementById('redo');
+  const clearBtn = document.getElementById('clear');
+  const saveBtn  = document.getElementById('save');
+
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = INTERNAL_W * dpr;
+  canvas.height = INTERNAL_H * dpr;
+  canvas.style.width = INTERNAL_W + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  let drawing = false;
+  let erasing = false;
+  let brushSize = parseInt(sizeInp.value, 10);
+  let brushColor = colorInp.value;
+
+  const history = [];
+  const redoStack = [];
+  function pushHistory() {
+    if (history.length >= MAX_HISTORY) history.shift();
+    history.push(ctx.getImageData(0, 0, INTERNAL_W, INTERNAL_H));
+    redoStack.length = 0;
+  }
+  function restore(imgData) { ctx.putImageData(imgData, 0, 0); }
+
+  ctx.clearRect(0, 0, INTERNAL_W, INTERNAL_H);
+  pushHistory();
+
+  colorInp.addEventListener('input', e => {
+    brushColor = e.target.value;
+    if (!erasing) ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = brushColor;
+  });
+
+  sizeInp.addEventListener('input', e => {
+    brushSize = parseInt(e.target.value, 10);
+    sizeVal.textContent = `${brushSize} px`;
+  });
+
+  eraserBtn.addEventListener('click', () => {
+    erasing = !erasing;
+    eraserBtn.textContent = `Eraser: ${erasing ? 'On' : 'Off'}`;
+    ctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
+  });
+
+  clearBtn.addEventListener('click', () => {
+    ctx.clearRect(0, 0, INTERNAL_W, INTERNAL_H);
+    pushHistory();
+  });
+
+  undoBtn.addEventListener('click', () => {
+    if (history.length > 1) {
+      redoStack.push(history.pop());
+      restore(history[history.length - 1]);
+    }
+  });
+
+  redoBtn.addEventListener('click', () => {
+    if (redoStack.length) {
+      const state = redoStack.pop();
+      history.push(state);
+      restore(state);
+    }
+  });
+
+  saveBtn.addEventListener('click', () => {
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url; a.download = 'depictly_drawing.png'; a.click();
+  });
+
+  function pointerPos(e){
+    const r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left)*(INTERNAL_W/r.width),
+             y: (e.clientY - r.top)*(INTERNAL_H/r.height) };
+  }
+  function startDraw(e){
+    drawing = true;
+    const {x,y} = pointerPos(e);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineWidth = brushSize;
+    ctx.strokeStyle = erasing ? 'rgba(0,0,0,1)' : brushColor;
+  }
+  function moveDraw(e){
+    if (!drawing) return;
+    const {x,y} = pointerPos(e);
+    ctx.lineWidth = brushSize;
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+  function endDraw(){
+    if (!drawing) return;
+    drawing = false;
+    ctx.closePath();
+    pushHistory();
+  }
+
+  canvas.addEventListener('pointerdown', startDraw);
+  canvas.addEventListener('pointermove', moveDraw);
+  window.addEventListener('pointerup', endDraw);
+  canvas.addEventListener('pointerleave', endDraw);
+
+  window.addEventListener('keydown', (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+    if (e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) redoBtn.click(); else undoBtn.click();
+    } else if (e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      redoBtn.click();
+    }
+  });
+})();
+</script>
+</body>
+</html>
