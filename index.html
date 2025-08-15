@@ -1,290 +1,206 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Depictly</title>
 <style>
-  :root{
-    --bg:#0e1126; --panel:#171b34; --muted:#232a57; --text:#e9edff; --accent:#7aa2ff;
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-color: #111432;
+    color: white;
   }
-  *{box-sizing:border-box}
-  body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:linear-gradient(180deg,#0b0e1a,#141a3f);color:var(--text)}
-  header{padding:14px 18px;text-align:center;font-weight:700;letter-spacing:.3px}
-
-  /* Main Menu */
   #menu {
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    min-height:100vh;gap:20px;text-align:center;padding:20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    gap: 20px;
   }
-  #menu h1 { font-size:2.2em; margin: 0 0 6px; }
+  .menu-logo {
+    max-width: 300px;
+    height: auto;
+  }
   .menu-btn {
-    background:var(--accent);color:#0a0f2e;padding:12px 20px;
-    border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:1em;
-    min-width:180px;transition:.2s
+    padding: 10px 20px;
+    background: #2b3c80;
+    border: none;
+    color: white;
+    font-size: 18px;
+    border-radius: 6px;
+    cursor: pointer;
   }
-  .menu-btn:hover{filter:brightness(1.15)}
-
-  /* App */
-  .wrap{max-width:1100px;margin:0 auto;padding:12px;display:none}
-  .toolbar{
-    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
-    background:var(--panel);border:1px solid #1f2550;border-radius:14px;
-    padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35)
+  .menu-btn:hover {
+    background: #3f54a6;
   }
-  .seg{display:flex;align-items:center;gap:8px;background:#111739;
-    border:1px solid #222a61;padding:6px 8px;border-radius:12px;}
-  label{font-size:13px;opacity:.9}
-  input[type="range"]{width:140px}
-  .btn{background:var(--muted);color:var(--text);border:none;border-radius:10px;
-    padding:8px 12px;font-weight:600;cursor:pointer;transition:.2s}
-  .btn:hover{filter:brightness(1.12)}
-  .btn.primary{background:var(--accent);color:#0a0f2e}
-  .stage{margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;
-    overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative}
-  canvas{display:block;width:100%;height:auto;touch-action:none;image-rendering:crisp-edges}
-  .footer{display:flex;justify-content:space-between;gap:10px;align-items:center;
-    color:#cbd7ff;opacity:.85;font-size:12px;margin:10px 4px 2px 4px;flex-wrap:wrap}
-  .kbd{background:#0d1230;border:1px solid #253070;border-radius:6px;padding:2px 6px}
-  @media (max-width:640px){ input[type="range"]{width:100px} }
+  #appWrap {
+    display: none;
+    padding: 10px;
+  }
+  #toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  canvas {
+    background: white;
+    display: block;
+    margin: auto;
+    border: 2px solid #333;
+    touch-action: none;
+  }
+  #overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.8);
+    color: white;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 20px;
+  }
 </style>
 </head>
 <body>
-<header>Depictly</header>
 
 <!-- Main Menu -->
-<section id="menu" aria-label="Main menu">
-  <h1>Welcome to Depictly</h1>
-  <p>A simple, fast, and clean drawing app for the web.</p>
-  <div>
-    <button class="menu-btn" onclick="showApp()">Start Drawing</button>
-  </div>
-  <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
-    <button class="menu-btn" style="background:#2f86ff;color:#071333" onclick="showHelp()">Help</button>
-    <button class="menu-btn" style="background:#8aa3ff;color:#071333" onclick="showAbout()">About</button>
-  </div>
-</section>
+<div id="menu">
+  <!-- NEW LOGO -->
+  <img class="menu-logo" src="images/depictly-logo.jpeg" alt="Depictly logo" />
+  <button class="menu-btn" onclick="showApp()">Start Drawing</button>
+  <button class="menu-btn" onclick="showHelp()">Help</button>
+  <button class="menu-btn" onclick="showAbout()">About</button>
+</div>
 
-<!-- App -->
-<main class="wrap" id="appWrap" aria-label="Drawing application">
-  <div class="toolbar" role="toolbar" aria-label="Drawing controls">
-    <div class="seg">
-      <label for="color">Color</label>
-      <input id="color" type="color" value="#111111" />
-    </div>
-    <div class="seg">
-      <label for="size">Size</label>
-      <input id="size" type="range" min="1" max="48" value="8" />
-      <span id="sizeVal">8 px</span>
-    </div>
-    <div class="seg">
-      <button id="eraser" class="btn" aria-pressed="false">Eraser: Off</button>
-    </div>
-    <div class="seg">
-      <button id="undo" class="btn">Undo</button>
-      <button id="redo" class="btn">Redo</button>
-    </div>
-    <div class="seg">
-      <button id="clear" class="btn">Clear</button>
-      <button id="save" class="btn primary">Save PNG</button>
-    </div>
+<!-- Drawing App -->
+<div id="appWrap">
+  <div id="toolbar">
+    Color: <input type="color" id="color" value="#000000" />
+    Size: <input type="range" id="size" min="1" max="50" value="5" />
+    <span id="sizeVal">5 px</span>
+    <button id="eraser">Eraser: Off</button>
+    <button id="undo">Undo</button>
+    <button id="redo">Redo</button>
+    <button id="clear">Clear</button>
+    <button id="save">Save</button>
   </div>
+  <canvas id="draw" width="800" height="600"></canvas>
+</div>
 
-  <div class="stage">
-    <canvas id="draw" width="1024" height="768" aria-label="Drawing canvas"></canvas>
-  </div>
-
-  <div class="footer">
-    <div>Draw with mouse, pen, or touch. Hi-DPI ready.</div>
-    <div>Shortcuts:
-      <span class="kbd">⌘/Ctrl + Z</span> Undo,
-      <span class="kbd">⌘/Ctrl + ⇧ + Z</span> / <span class="kbd">⌘/Ctrl + Y</span> Redo
-    </div>
-  </div>
-</main>
-
-<!-- Help/About Overlay -->
-<section id="overlay" style="display:none;position:fixed;inset:0;
-background:rgba(0,0,0,.85);color:white;z-index:10;align-items:center;justify-content:center;
-text-align:center;padding:24px;">
-  <div id="overlayContent" style="max-width:760px"></div>
-  <button style="margin-top:20px;padding:10px 16px;cursor:pointer;border:none;
-  border-radius:8px;background:var(--accent);color:#071333;font-weight:700"
-  onclick="closeOverlay()">Close</button>
-</section>
+<!-- Overlay -->
+<div id="overlay"></div>
 
 <script>
-/* Menu / Overlay controls (global) */
-function showApp(){
-  document.getElementById('menu').style.display='none';
-  document.getElementById('appWrap').style.display='block';
-  document.getElementById('overlay').style.display='none';
+const canvas = document.getElementById('draw');
+const ctx = canvas.getContext('2d');
+let drawing = false;
+let eraser = false;
+let brushColor = document.getElementById('color').value;
+let brushSize = document.getElementById('size').value;
+let lastPoint = null;
+let history = [];
+let historyStep = -1;
+
+function saveState() {
+  history = history.slice(0, historyStep + 1);
+  history.push(canvas.toDataURL());
+  historyStep++;
 }
-function showHelp(){
-  const ov = document.getElementById('overlay');
-  ov.style.display='flex';
-  document.getElementById('overlayContent').innerHTML =
-    "<h2>Help</h2><p>Select a color and brush size, then draw with mouse, pen, or touch.<br>" +
-    "Use the Eraser to remove lines. Undo/Redo are available.<br>" +
-    "Save PNG downloads your drawing.</p>";
+function restoreState(step) {
+  let img = new Image();
+  img.src = history[step];
+  img.onload = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+  };
 }
-function showAbout(){
-  const ov = document.getElementById('overlay');
-  ov.style.display='flex';
-  document.getElementById('overlayContent').innerHTML =
-    "<h2>About Depictly</h2><p>Depictly is a simple online drawing app focused on speed and clarity. " +
-    "It works without installing anything and supports mouse, pen, and touch.</p>";
-}
-function closeOverlay(){ document.getElementById('overlay').style.display='none'; }
-</script>
 
-<script>
-/* Drawing engine with hi-DPI, true eraser, capped history, pointer events */
-(() => {
-  const canvas = document.getElementById('draw');
-  const ctx = canvas.getContext('2d', { desynchronized: true });
-
-  const colorEl = document.getElementById('color');
-  const sizeEl  = document.getElementById('size');
-  const sizeVal = document.getElementById('sizeVal');
-  const eraserEl= document.getElementById('eraser');
-  const undoEl  = document.getElementById('undo');
-  const redoEl  = document.getElementById('redo');
-  const clearEl = document.getElementById('clear');
-  const saveEl  = document.getElementById('save');
-
-  // Logical canvas size
-  const INTERNAL_W = canvas.width || 1024;
-  const INTERNAL_H = canvas.height || 768;
-
-  // Hi-DPI scaling (crisp lines on Retina)
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  canvas.width  = INTERNAL_W * dpr;
-  canvas.height = INTERNAL_H * dpr;
-  canvas.style.width  = INTERNAL_W + 'px';
-  canvas.style.height = 'auto';
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+canvas.addEventListener('mousedown', (e) => {
+  drawing = true;
+  lastPoint = { x: e.offsetX, y: e.offsetY };
+});
+canvas.addEventListener('mouseup', () => {
+  if (drawing) saveState();
+  drawing = false;
+  lastPoint = null;
+});
+canvas.addEventListener('mouseleave', () => {
+  drawing = false;
+  lastPoint = null;
+});
+canvas.addEventListener('mousemove', (e) => {
+  if (!drawing) return;
+  ctx.strokeStyle = eraser ? '#111432' : brushColor;
+  ctx.lineWidth = brushSize;
   ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(lastPoint.x, lastPoint.y);
+  ctx.lineTo(e.offsetX, e.offsetY);
+  ctx.stroke();
+  lastPoint = { x: e.offsetX, y: e.offsetY };
+});
 
-  // State
-  let drawing = false;
-  let erasing = false;
-  let brushColor = colorEl.value;
-  let brushSize  = parseInt(sizeEl.value, 10);
-
-  // History (fast ImageData snapshots)
-  const MAX_HISTORY = 30;
-  let history = [];
-  let step = -1;
-
-  function snapshot() {
-    history = history.slice(0, step + 1);
-    history.push(ctx.getImageData(0, 0, INTERNAL_W, INTERNAL_H));
-    if (history.length > MAX_HISTORY) history.shift();
-    step = history.length - 1;
+document.getElementById('color').oninput = e => brushColor = e.target.value;
+document.getElementById('size').oninput = e => {
+  brushSize = e.target.value;
+  document.getElementById('sizeVal').textContent = `${brushSize} px`;
+};
+document.getElementById('eraser').onclick = () => {
+  eraser = !eraser;
+  document.getElementById('eraser').textContent = `Eraser: ${eraser ? 'On' : 'Off'}`;
+};
+document.getElementById('undo').onclick = () => {
+  if (historyStep > 0) {
+    historyStep--;
+    restoreState(historyStep);
   }
-  function restore(idx) {
-    if (idx < 0 || idx >= history.length) return;
-    ctx.putImageData(history[idx], 0, 0);
+};
+document.getElementById('redo').onclick = () => {
+  if (historyStep < history.length - 1) {
+    historyStep++;
+    restoreState(historyStep);
   }
+};
+document.getElementById('clear').onclick = () => {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  saveState();
+};
+document.getElementById('save').onclick = () => {
+  const url = canvas.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'drawing.png';
+  a.click();
+};
 
-  // Init
-  ctx.clearRect(0, 0, INTERNAL_W, INTERNAL_H);
-  snapshot();
-
-  // Helpers
-  function posFromEvent(e) {
-    const r = canvas.getBoundingClientRect();
-    return {
-      x: (e.clientX - r.left) * (INTERNAL_W / r.width),
-      y: (e.clientY - r.top)  * (INTERNAL_H / r.height)
-    };
-  }
-  function beginStroke(pt) {
-    drawing = true;
-    ctx.beginPath();
-    ctx.moveTo(pt.x, pt.y);
-    ctx.lineWidth = brushSize;
-    ctx.strokeStyle = erasing ? 'rgba(0,0,0,1)' : brushColor;
-    ctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
-  }
-  function moveStroke(pt) {
-    if (!drawing) return;
-    ctx.lineWidth = brushSize;
-    ctx.lineTo(pt.x, pt.y);
-    ctx.stroke();
-  }
-  function endStroke() {
-    if (!drawing) return;
-    drawing = false;
-    ctx.closePath();
-    snapshot();
-  }
-
-  // Unified pointer events (mouse/pen/touch)
-  canvas.addEventListener('pointerdown', (e) => {
-    canvas.setPointerCapture(e.pointerId);
-    beginStroke(posFromEvent(e));
-  });
-  canvas.addEventListener('pointermove', (e) => moveStroke(posFromEvent(e)));
-  canvas.addEventListener('pointerup',   ()  => endStroke());
-  canvas.addEventListener('pointercancel',() => endStroke());
-  canvas.addEventListener('pointerleave', () => endStroke());
-
-  // Controls
-  colorEl.oninput = e => {
-    brushColor = e.target.value;
-    if (!erasing) {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = brushColor;
-    }
-  };
-  sizeEl.oninput = e => {
-    brushSize = parseInt(e.target.value, 10);
-    if (sizeVal) sizeVal.textContent = `${brushSize} px`;
-  };
-  eraserEl.onclick = () => {
-    erasing = !erasing;
-    eraserEl.textContent = `Eraser: ${erasing ? 'On' : 'Off'}`;
-    eraserEl.setAttribute('aria-pressed', erasing ? 'true' : 'false');
-  };
-
-  undoEl.onclick = () => {
-    if (step > 0) { step--; restore(step); }
-  };
-  redoEl.onclick = () => {
-    if (step < history.length - 1) { step++; restore(step); }
-  };
-  clearEl.onclick = () => {
-    ctx.clearRect(0, 0, INTERNAL_W, INTERNAL_H);
-    snapshot();
-  };
-
-  // Save (export at logical resolution)
-  saveEl.onclick = () => {
-    const out = document.createElement('canvas');
-    out.width = INTERNAL_W; out.height = INTERNAL_H;
-    const octx = out.getContext('2d');
-    octx.drawImage(canvas, 0, 0, out.width, out.height);
-    const url = out.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href = url; a.download = 'depictly_drawing.png'; a.click();
-  };
-
-  // Keyboard shortcuts
-  document.addEventListener('keydown', (e) => {
-    const mod = e.ctrlKey || e.metaKey;
-    const key = e.key.toLowerCase();
-    if (mod && !e.shiftKey && key === 'z') { e.preventDefault(); undoEl.click(); }
-    if (mod && ( (e.shiftKey && key === 'z') || key === 'y')) { e.preventDefault(); redoEl.click(); }
-  });
-
-  // Show menu on load, app hidden
-  document.getElementById('menu').style.display = 'flex';
-  document.getElementById('appWrap').style.display = 'none';
+function showApp() {
+  document.getElementById('menu').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
   document.getElementById('overlay').style.display = 'none';
-})();
+  saveState();
+}
+function showHelp() {
+  document.getElementById('overlay').style.display = 'flex';
+  document.getElementById('overlay').innerHTML =
+    `<div><h2>Help</h2><p>Use mouse or touch to draw. Change color and size. Undo/Redo. Save as PNG.</p><button onclick="closeOverlay()">Close</button></div>`;
+}
+function showAbout() {
+  document.getElementById('overlay').style.display = 'flex';
+  document.getElementById('overlay').innerHTML =
+    `<div><h2>About Depictly</h2><p>Depictly is a simple web drawing app.</p><button onclick="closeOverlay()">Close</button></div>`;
+}
+function closeOverlay() {
+  document.getElementById('overlay').style.display = 'none';
+}
+
+document.getElementById('menu').style.display = 'flex';
+document.getElementById('appWrap').style.display = 'none';
+document.getElementById('overlay').style.display = 'none';
 </script>
+
 </body>
 </html>
