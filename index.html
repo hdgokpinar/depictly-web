@@ -1,100 +1,132 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Depictly</title>
 <style>
-  body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background-color: #111432;
-    color: white;
+  :root{
+    --bg:#0e1126; --panel:#171b34; --muted:#232a57; --text:#e9edff; --accent:#7aa2ff;
   }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:linear-gradient(180deg,#0b0e1a,#141a3f);color:var(--text)}
+  header{padding:14px 18px;text-align:center;font-weight:700;letter-spacing:.3px}
+
+  /* Main Menu */
   #menu {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    gap: 20px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    min-height:100vh;gap:20px;text-align:center;padding:20px;
   }
-  .menu-logo {
-    max-width: 300px;
+  #menu img {
+    max-width: 240px;
     height: auto;
   }
   .menu-btn {
-    padding: 10px 20px;
-    background: #2b3c80;
-    border: none;
-    color: white;
-    font-size: 18px;
-    border-radius: 6px;
-    cursor: pointer;
+    background:var(--accent);color:#0a0f2e;padding:12px 20px;
+    border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:1em;
+    min-width:180px;transition:.2s
   }
-  .menu-btn:hover {
-    background: #3f54a6;
+  .menu-btn:hover{filter:brightness(1.15)}
+
+  /* App */
+  .wrap{max-width:1100px;margin:0 auto;padding:12px;display:none}
+  .toolbar{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    background:var(--panel);border:1px solid #1f2550;border-radius:14px;
+    padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35)
   }
-  #appWrap {
-    display: none;
-    padding: 10px;
-  }
-  #toolbar {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 10px;
-  }
-  canvas {
-    background: white;
-    display: block;
-    margin: auto;
-    border: 2px solid #333;
-    touch-action: none;
-  }
-  #overlay {
-    display: none;
-    position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    background: rgba(0,0,0,0.8);
-    color: white;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
-    padding: 20px;
-  }
+  .seg{display:flex;align-items:center;gap:8px;background:#111739;
+    border:1px solid #222a61;padding:6px 8px;border-radius:12px;}
+  label{font-size:13px;opacity:.9}
+  input[type="range"]{width:140px}
+  .btn{background:var(--muted);color:var(--text);border:none;border-radius:10px;
+    padding:8px 12px;font-weight:600;cursor:pointer;transition:.2s}
+  .btn:hover{filter:brightness(1.12)}
+  .btn.primary{background:var(--accent);color:#0a0f2e}
+  .stage{margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;
+    overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative}
+  canvas{display:block;width:100%;height:auto;touch-action:none;image-rendering:crisp-edges}
+  .footer{display:flex;justify-content:space-between;gap:10px;align-items:center;
+    color:#cbd7ff;opacity:.85;font-size:12px;margin:10px 4px 2px 4px;flex-wrap:wrap}
+  .kbd{background:#0d1230;border:1px solid #253070;border-radius:6px;padding:2px 6px}
+  @media (max-width:640px){ input[type="range"]{width:100px} }
 </style>
 </head>
 <body>
+<header>Depictly</header>
 
 <!-- Main Menu -->
-<div id="menu">
-  <!-- NEW LOGO -->
-  <img class="menu-logo" src="images/depictly-logo.jpeg" alt="Depictly logo" />
-  <button class="menu-btn" onclick="showApp()">Start Drawing</button>
-  <button class="menu-btn" onclick="showHelp()">Help</button>
-  <button class="menu-btn" onclick="showAbout()">About</button>
-</div>
-
-<!-- Drawing App -->
-<div id="appWrap">
-  <div id="toolbar">
-    Color: <input type="color" id="color" value="#000000" />
-    Size: <input type="range" id="size" min="1" max="50" value="5" />
-    <span id="sizeVal">5 px</span>
-    <button id="eraser">Eraser: Off</button>
-    <button id="undo">Undo</button>
-    <button id="redo">Redo</button>
-    <button id="clear">Clear</button>
-    <button id="save">Save</button>
+<section id="menu" aria-label="Main menu">
+  <img src="depictly-logo.jpeg" alt="Depictly Logo" />
+  <p>A simple, fast, and clean drawing app for the web.</p>
+  <div>
+    <button class="menu-btn" onclick="showApp()">Start Drawing</button>
   </div>
-  <canvas id="draw" width="800" height="600"></canvas>
-</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+    <button class="menu-btn" style="background:#2f86ff;color:#071333" onclick="showHelp()">Help</button>
+    <button class="menu-btn" style="background:#8aa3ff;color:#071333" onclick="showAbout()">About</button>
+  </div>
+</section>
 
-<!-- Overlay -->
-<div id="overlay"></div>
+<!-- App -->
+<main class="wrap" id="appWrap" aria-label="Drawing application">
+  <div class="toolbar">
+    <div class="seg">
+      <label for="color">Color</label>
+      <input type="color" id="color" value="#ff0000">
+    </div>
+    <div class="seg">
+      <label for="size">Size</label>
+      <input type="range" id="size" min="1" max="50" value="5">
+      <span id="sizeVal">5 px</span>
+    </div>
+    <button id="eraser" class="btn">Eraser: Off</button>
+    <button id="undo" class="btn">Undo</button>
+    <button id="redo" class="btn">Redo</button>
+    <button id="clear" class="btn">Clear</button>
+    <button id="save" class="btn primary">Save PNG</button>
+  </div>
+  <div class="stage">
+    <canvas id="draw" width="1000" height="600"></canvas>
+  </div>
+</main>
+
+<!-- Help/About Overlay -->
+<section id="overlay" style="display:none;position:fixed;inset:0;
+background:rgba(0,0,0,.85);color:white;z-index:10;align-items:center;justify-content:center;
+text-align:center;padding:24px;">
+  <div id="overlayContent" style="max-width:760px"></div>
+  <button style="margin-top:20px;padding:10px 16px;cursor:pointer;border:none;
+  border-radius:8px;background:var(--accent);color:#071333;font-weight:700"
+  onclick="closeOverlay()">Close</button>
+</section>
 
 <script>
+/* Menu / Overlay controls */
+function showApp(){
+  document.getElementById('menu').style.display='none';
+  document.getElementById('appWrap').style.display='block';
+  document.getElementById('overlay').style.display='none';
+  saveState(); // initialize undo history
+}
+function showHelp(){
+  const ov = document.getElementById('overlay');
+  ov.style.display='flex';
+  document.getElementById('overlayContent').innerHTML =
+    "<h2>Help</h2><p>Select a color and brush size, then draw with mouse, pen, or touch.<br>" +
+    "Use the Eraser to remove lines. Undo/Redo are available.<br>" +
+    "Save PNG downloads your drawing.</p>";
+}
+function showAbout(){
+  const ov = document.getElementById('overlay');
+  ov.style.display='flex';
+  document.getElementById('overlayContent').innerHTML =
+    "<h2>About Depictly</h2><p>Depictly is a simple online drawing app focused on speed and clarity. " +
+    "It works without installing anything and supports mouse, pen, and touch.</p>";
+}
+function closeOverlay(){ document.getElementById('overlay').style.display='none'; }
+
+/* Drawing logic */
 const canvas = document.getElementById('draw');
 const ctx = canvas.getContext('2d');
 let drawing = false;
@@ -105,12 +137,12 @@ let lastPoint = null;
 let history = [];
 let historyStep = -1;
 
-function saveState() {
+function saveState(){
   history = history.slice(0, historyStep + 1);
   history.push(canvas.toDataURL());
   historyStep++;
 }
-function restoreState(step) {
+function restoreState(step){
   let img = new Image();
   img.src = history[step];
   img.onload = () => {
@@ -127,10 +159,12 @@ canvas.addEventListener('mouseup', () => {
   if (drawing) saveState();
   drawing = false;
   lastPoint = null;
+  ctx.beginPath();
 });
 canvas.addEventListener('mouseleave', () => {
   drawing = false;
   lastPoint = null;
+  ctx.beginPath();
 });
 canvas.addEventListener('mousemove', (e) => {
   if (!drawing) return;
@@ -144,6 +178,38 @@ canvas.addEventListener('mousemove', (e) => {
   lastPoint = { x: e.offsetX, y: e.offsetY };
 });
 
+// Touch support
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  let rect = canvas.getBoundingClientRect();
+  let x = e.touches[0].clientX - rect.left;
+  let y = e.touches[0].clientY - rect.top;
+  drawing = true;
+  lastPoint = { x, y };
+});
+canvas.addEventListener('touchend', () => {
+  if (drawing) saveState();
+  drawing = false;
+  lastPoint = null;
+  ctx.beginPath();
+});
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (!drawing) return;
+  let rect = canvas.getBoundingClientRect();
+  let x = e.touches[0].clientX - rect.left;
+  let y = e.touches[0].clientY - rect.top;
+  ctx.strokeStyle = eraser ? '#111432' : brushColor;
+  ctx.lineWidth = brushSize;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(lastPoint.x, lastPoint.y);
+  ctx.lineTo(x, y);
+  ctx.stroke();
+  lastPoint = { x, y };
+});
+
+// Controls
 document.getElementById('color').oninput = e => brushColor = e.target.value;
 document.getElementById('size').oninput = e => {
   brushSize = e.target.value;
@@ -167,6 +233,7 @@ document.getElementById('redo').onclick = () => {
 };
 document.getElementById('clear').onclick = () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.beginPath();
   saveState();
 };
 document.getElementById('save').onclick = () => {
@@ -174,33 +241,22 @@ document.getElementById('save').onclick = () => {
   const a = document.createElement('a');
   a.href = url;
   a.download = 'drawing.png';
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
 };
 
-function showApp() {
-  document.getElementById('menu').style.display = 'none';
-  document.getElementById('appWrap').style.display = 'block';
-  document.getElementById('overlay').style.display = 'none';
-  saveState();
-}
-function showHelp() {
-  document.getElementById('overlay').style.display = 'flex';
-  document.getElementById('overlay').innerHTML =
-    `<div><h2>Help</h2><p>Use mouse or touch to draw. Change color and size. Undo/Redo. Save as PNG.</p><button onclick="closeOverlay()">Close</button></div>`;
-}
-function showAbout() {
-  document.getElementById('overlay').style.display = 'flex';
-  document.getElementById('overlay').innerHTML =
-    `<div><h2>About Depictly</h2><p>Depictly is a simple web drawing app.</p><button onclick="closeOverlay()">Close</button></div>`;
-}
-function closeOverlay() {
-  document.getElementById('overlay').style.display = 'none';
-}
-
-document.getElementById('menu').style.display = 'flex';
-document.getElementById('appWrap').style.display = 'none';
-document.getElementById('overlay').style.display = 'none';
+// Shortcuts
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+    document.getElementById('undo').click();
+    e.preventDefault();
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.shiftKey && e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+    document.getElementById('redo').click();
+    e.preventDefault();
+  }
+});
 </script>
-
 </body>
 </html>
