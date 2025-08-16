@@ -26,11 +26,10 @@
   .btn:hover{filter:brightness(1.12)}
   .btn.primary{background:var(--accent);color:#0a0f2e}
 
-  .stage{margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative}
+  .stage{margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative;min-height:620px}
   .stage canvas{position:absolute;inset:0;width:100%;height:auto;touch-action:none;image-rendering:crisp-edges}
-  /* bp = blueprint (bottom layer), draw = user strokes (top layer) */
-  #bp{z-index:0}
-  #draw{z-index:1}
+  #bp{z-index:0}   /* blueprint layer */
+  #draw{z-index:1} /* user strokes */
 
   .footer{display:flex;justify-content:space-between;gap:10px;align-items:center;color:#cbd7ff;opacity:.85;font-size:12px;margin:10px 4px 2px 4px;flex-wrap:wrap}
   .kbd{background:#0d1230;border:1px solid #253070;border-radius:6px;padding:2px 6px}
@@ -50,7 +49,10 @@
 
 <!-- Main Menu -->
 <section id="menu" aria-label="Main menu">
-  <img src="images/depictly-logo.jpeg" alt="Depictly Logo" />
+  <picture>
+    <source srcset="images/depictly-logo.jpeg" />
+    <img src="depictly-logo.jpeg" alt="Depictly Logo" />
+  </picture>
   <p>A simple, fast, and clean drawing app for the web.</p>
   <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
     <button class="menu-btn" onclick="showApp()">Start Drawing</button>
@@ -103,14 +105,14 @@
   </div>
 </main>
 
-<!-- About / Help overlay (reuses picker UI, so keep simple) -->
+<!-- Simple overlay -->
 <section id="overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);color:white;z-index:10;align-items:center;justify-content:center;text-align:center;padding:24px;">
   <div id="overlayContent" style="max-width:760px"></div>
   <button class="menu-btn" style="margin-top:16px" onclick="closeOverlay()">Close</button>
 </section>
 
 <script>
-/* ---------- MENU / PAGES ---------- */
+/* ---------- Page switches ---------- */
 function showApp(){
   document.getElementById('menu').style.display='none';
   document.getElementById('blueprintMenu').style.display='none';
@@ -138,7 +140,7 @@ function backToMenu(){
 </script>
 
 <script>
-/* ---------- BLUEPRINTS (list + layer) ---------- */
+/* ---------- Blueprint layer & picker ---------- */
 const BLUEPRINTS = [
   { name: "Dress (Basic)",  src: "blueprints/dress-basic.png" },
   { name: "Dress (Fancy)",  src: "blueprints/dress-fancy.png" },
@@ -152,11 +154,12 @@ const bpCanvas = document.getElementById('bp');
 const bpCtx    = bpCanvas.getContext('2d');
 const drawCanvas = document.getElementById('draw');
 const ctx = drawCanvas.getContext('2d');
+
 const bpOpacityInput = document.getElementById('bpOpacity');
-const bpOpacityVal = document.getElementById('bpOpacityVal');
-const toggleBpBtn = document.getElementById('toggleBp');
-const clearBpBtn  = document.getElementById('clearBp');
-const pickBpBtn   = document.getElementById('pickBlueprint');
+const bpOpacityVal   = document.getElementById('bpOpacityVal');
+const toggleBpBtn    = document.getElementById('toggleBp');
+const clearBpBtn     = document.getElementById('clearBp');
+const pickBpBtn      = document.getElementById('pickBlueprint');
 
 let blueprintImage = null;
 let blueprintVisible = true;
@@ -168,13 +171,8 @@ function renderBlueprintList(){
   BLUEPRINTS.forEach((b) => {
     const card = document.createElement('div');
     card.className = 'bp-card';
-    card.innerHTML = `
-      <img src="${b.src}" alt="${b.name}">
-      <div class="bp-name">${b.name}</div>
-    `;
-    card.onclick = () => {
-      startWithBlueprint(b.src);
-    };
+    card.innerHTML = `<img src="${b.src}" alt="${b.name}"><div class="bp-name">${b.name}</div>`;
+    card.onclick = () => startWithBlueprint(b.src);
     list.appendChild(card);
   });
 }
@@ -183,16 +181,13 @@ function startWithBlueprint(src){
   document.getElementById('blueprintMenu').style.display='none';
   document.getElementById('appWrap').style.display='block';
   setBlueprint(src);
-  saveState(); // prime undo after layer shown
+  saveState();
 }
 
 function setBlueprint(src){
   const img = new Image();
   img.src = src;
-  img.onload = () => {
-    blueprintImage = img;
-    drawBlueprint();
-  };
+  img.onload = () => { blueprintImage = img; drawBlueprint(); };
 }
 
 function drawBlueprint(){
@@ -204,33 +199,21 @@ function drawBlueprint(){
   const scale = Math.min(cw/iw, ch/ih);
   const w = iw * scale, h = ih * scale;
   const x = (cw - w) / 2, y = (ch - h) / 2;
-
   bpCtx.save();
   bpCtx.globalAlpha = blueprintOpacity;
   bpCtx.drawImage(blueprintImage, x, y, w, h);
   bpCtx.restore();
 }
 
-/* UI actions for blueprint layer */
-bpOpacityInput.oninput = (e)=>{
-  blueprintOpacity = parseInt(e.target.value,10) / 100;
-  bpOpacityVal.textContent = `${e.target.value}%`;
-  drawBlueprint();
-};
-toggleBpBtn.onclick = ()=>{
-  blueprintVisible = !blueprintVisible;
-  toggleBpBtn.textContent = blueprintVisible ? 'Hide Blueprint' : 'Show Blueprint';
-  drawBlueprint();
-};
-clearBpBtn.onclick = ()=>{
-  blueprintImage = null;
-  drawBlueprint();
-};
-pickBpBtn.onclick = ()=> showBlueprintMenu();
+/* In-app blueprint controls */
+bpOpacityInput.oninput = (e)=>{ blueprintOpacity = parseInt(e.target.value,10)/100; bpOpacityVal.textContent = `${e.target.value}%`; drawBlueprint(); };
+toggleBpBtn.onclick = ()=>{ blueprintVisible = !blueprintVisible; toggleBpBtn.textContent = blueprintVisible ? 'Hide Blueprint' : 'Show Blueprint'; drawBlueprint(); };
+clearBpBtn.onclick = ()=>{ blueprintImage = null; drawBlueprint(); };
+pickBpBtn.onclick  = ()=> showBlueprintMenu();
 </script>
 
 <script>
-/* ---------- DRAWING (top layer) + UNDO/REDO ---------- */
+/* ---------- Drawing layer + undo/redo ---------- */
 let drawing = false;
 let eraser = false;
 let brushColor = document.getElementById('color').value;
@@ -239,7 +222,6 @@ let lastPoint = null;
 let history = [];
 let historyStep = -1;
 
-/* Undo/Redo with DataURL (simple) */
 function saveState(){
   history = history.slice(0, historyStep + 1);
   history.push(drawCanvas.toDataURL());
@@ -251,23 +233,14 @@ function restoreState(step){
   img.onload = () => {
     ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
     ctx.drawImage(img, 0, 0);
-    // redraw blueprint layer untouched
-    drawBlueprint();
+    drawBlueprint(); // keep blueprint consistent
   };
 }
 
-/* Mouse drawing on top canvas */
-drawCanvas.addEventListener('mousedown', (e) => {
-  drawing = true;
-  lastPoint = { x: e.offsetX, y: e.offsetY };
-});
-drawCanvas.addEventListener('mouseup', () => {
-  if (drawing) saveState();
-  drawing = false; lastPoint = null; ctx.beginPath();
-});
-drawCanvas.addEventListener('mouseleave', () => {
-  drawing = false; lastPoint = null; ctx.beginPath();
-});
+/* Mouse */
+drawCanvas.addEventListener('mousedown', (e) => { drawing = true; lastPoint = { x: e.offsetX, y: e.offsetY }; });
+drawCanvas.addEventListener('mouseup',   ()  => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
+drawCanvas.addEventListener('mouseleave',()  => { drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mousemove', (e) => {
   if (!drawing) return;
   ctx.strokeStyle = eraser ? '#111432' : brushColor;
@@ -284,17 +257,12 @@ drawCanvas.addEventListener('mousemove', (e) => {
 drawCanvas.addEventListener('touchstart', (e) => {
   e.preventDefault();
   const r = drawCanvas.getBoundingClientRect();
-  const x = e.touches[0].clientX - r.left;
-  const y = e.touches[0].clientY - r.top;
-  drawing = true; lastPoint = { x, y };
+  drawing = true;
+  lastPoint = { x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top };
 });
-drawCanvas.addEventListener('touchend', () => {
-  if (drawing) saveState();
-  drawing = false; lastPoint = null; ctx.beginPath();
-});
+drawCanvas.addEventListener('touchend', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('touchmove', (e) => {
-  e.preventDefault();
-  if (!drawing) return;
+  e.preventDefault(); if (!drawing) return;
   const r = drawCanvas.getBoundingClientRect();
   const x = e.touches[0].clientX - r.left;
   const y = e.touches[0].clientY - r.top;
@@ -310,33 +278,18 @@ drawCanvas.addEventListener('touchmove', (e) => {
 
 /* Controls */
 document.getElementById('color').oninput = e => brushColor = e.target.value;
-document.getElementById('size').oninput = e => {
-  brushSize = e.target.value;
-  document.getElementById('sizeVal').textContent = `${brushSize} px`;
-};
-document.getElementById('eraser').onclick = () => {
-  eraser = !eraser;
-  document.getElementById('eraser').textContent = `Eraser: ${eraser ? 'On' : 'Off'}`;
-};
-document.getElementById('undo').onclick = () => {
-  if (historyStep > 0) { historyStep--; restoreState(historyStep); }
-};
-document.getElementById('redo').onclick = () => {
-  if (historyStep < history.length - 1) { historyStep++; restoreState(historyStep); }
-};
-document.getElementById('clear').onclick = () => {
-  ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-  ctx.beginPath(); saveState();
-};
+document.getElementById('size').oninput  = e => { brushSize = e.target.value; document.getElementById('sizeVal').textContent = `${brushSize} px`; };
+document.getElementById('eraser').onclick= () => { eraser = !eraser; document.getElementById('eraser').textContent = `Eraser: ${eraser ? 'On' : 'Off'}`; };
+document.getElementById('undo').onclick  = () => { if (historyStep > 0) { historyStep--; restoreState(historyStep); } };
+document.getElementById('redo').onclick  = () => { if (historyStep < history.length - 1) { historyStep++; restoreState(historyStep); } };
+document.getElementById('clear').onclick = () => { ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height); ctx.beginPath(); saveState(); };
 
-/* Save PNG (composite of blueprint + drawing) */
+/* Save PNG (composites blueprint + drawing) */
 document.getElementById('save').onclick = () => {
   const out = document.createElement('canvas');
   out.width = drawCanvas.width; out.height = drawCanvas.height;
   const octx = out.getContext('2d');
-  // draw blueprint first (if visible), then strokes
   if (blueprintImage && blueprintVisible){
-    // re-apply same fit math to export
     const cw = out.width, ch = out.height;
     const iw = blueprintImage.width, ih = blueprintImage.height;
     const scale = Math.min(cw/iw, ch/ih);
@@ -357,7 +310,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey||e.metaKey) && ((e.shiftKey && e.key.toLowerCase()==='z') || e.key.toLowerCase()==='y')){ document.getElementById('redo').click(); e.preventDefault(); }
 });
 
-/* Initial page state */
+/* Initial state */
 document.getElementById('menu').style.display='flex';
 document.getElementById('blueprintMenu').style.display='none';
 document.getElementById('appWrap').style.display='none';
