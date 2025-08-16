@@ -5,54 +5,44 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Depictly</title>
 <style>
-  :root{
-    --bg:#0e1126; --panel:#171b34; --muted:#232a57; --text:#e9edff; --accent:#7aa2ff;
-  }
+  :root{ --bg:#0e1126; --panel:#171b34; --muted:#232a57; --text:#e9edff; --accent:#7aa2ff; }
   *{box-sizing:border-box}
   body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:linear-gradient(180deg,#0b0e1a,#141a3f);color:var(--text)}
   header{padding:14px 18px;text-align:center;font-weight:700;letter-spacing:.3px}
 
   /* Main Menu */
-  #menu {
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    min-height:100vh;gap:20px;text-align:center;padding:20px;
-  }
-<!-- Logo: tries images folder first, then root folder -->
-<picture>
-  <source srcset="images/depictly-logo.jpeg" />
-  <img src="depictly-logo.jpeg" alt="Depictly Logo" style="max-width:240px;height:auto;" />
-</picture>
-
-  }
-  .menu-btn {
-    background:var(--accent);color:#0a0f2e;padding:12px 20px;
-    border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:1em;
-    min-width:180px;transition:.2s
-  }
+  #menu{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:20px;text-align:center;padding:20px}
+  #menu img{max-width:240px;height:auto}
+  .menu-btn{background:var(--accent);color:#0a0f2e;padding:12px 20px;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:1em;min-width:180px;transition:.2s}
   .menu-btn:hover{filter:brightness(1.15)}
 
   /* App */
   .wrap{max-width:1100px;margin:0 auto;padding:12px;display:none}
-  .toolbar{
-    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
-    background:var(--panel);border:1px solid #1f2550;border-radius:14px;
-    padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35)
-  }
-  .seg{display:flex;align-items:center;gap:8px;background:#111739;
-    border:1px solid #222a61;padding:6px 8px;border-radius:12px;}
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--panel);border:1px solid #1f2550;border-radius:14px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  .seg{display:flex;align-items:center;gap:8px;background:#111739;border:1px solid #222a61;padding:6px 8px;border-radius:12px}
   label{font-size:13px;opacity:.9}
   input[type="range"]{width:140px}
-  .btn{background:var(--muted);color:var(--text);border:none;border-radius:10px;
-    padding:8px 12px;font-weight:600;cursor:pointer;transition:.2s}
+  .btn{background:var(--muted);color:var(--text);border:none;border-radius:10px;padding:8px 12px;font-weight:600;cursor:pointer;transition:.2s}
   .btn:hover{filter:brightness(1.12)}
   .btn.primary{background:var(--accent);color:#0a0f2e}
-  .stage{margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;
-    overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative}
-  canvas{display:block;width:100%;height:auto;touch-action:none;image-rendering:crisp-edges}
-  .footer{display:flex;justify-content:space-between;gap:10px;align-items:center;
-    color:#cbd7ff;opacity:.85;font-size:12px;margin:10px 4px 2px 4px;flex-wrap:wrap}
+
+  .stage{margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative}
+  .stage canvas{position:absolute;inset:0;width:100%;height:auto;touch-action:none;image-rendering:crisp-edges}
+  /* bp = blueprint (bottom layer), draw = user strokes (top layer) */
+  #bp{z-index:0}
+  #draw{z-index:1}
+
+  .footer{display:flex;justify-content:space-between;gap:10px;align-items:center;color:#cbd7ff;opacity:.85;font-size:12px;margin:10px 4px 2px 4px;flex-wrap:wrap}
   .kbd{background:#0d1230;border:1px solid #253070;border-radius:6px;padding:2px 6px}
   @media (max-width:640px){ input[type="range"]{width:100px} }
+
+  /* Blueprint picker screen */
+  #blueprintMenu{display:none;min-height:100vh;text-align:center;padding:24px}
+  .bp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:18px;max-width:1000px;margin:22px auto}
+  .bp-card{background:#111739;border:1px solid #222a61;border-radius:12px;padding:10px;cursor:pointer;transition:.15s}
+  .bp-card:hover{filter:brightness(1.12);transform:translateY(-1px)}
+  .bp-card img{width:100%;height:160px;object-fit:contain;background:#0f1436;border-radius:10px}
+  .bp-name{font-size:13px;margin-top:6px;opacity:.9}
 </style>
 </head>
 <body>
@@ -62,18 +52,34 @@
 <section id="menu" aria-label="Main menu">
   <img src="images/depictly-logo.jpeg" alt="Depictly Logo" />
   <p>A simple, fast, and clean drawing app for the web.</p>
-  <div>
-    <button class="menu-btn" onclick="showApp()">Start Drawing</button>
-  </div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
-    <button class="menu-btn" style="background:#2f86ff;color:#071333" onclick="showHelp()">Help</button>
+    <button class="menu-btn" onclick="showApp()">Start Drawing</button>
+    <button class="menu-btn" style="background:#2f86ff;color:#071333" onclick="showBlueprintMenu()">Start with a Blueprint</button>
     <button class="menu-btn" style="background:#8aa3ff;color:#071333" onclick="showAbout()">About</button>
   </div>
+</section>
+
+<!-- Blueprint Selection Screen -->
+<section id="blueprintMenu">
+  <h2>Select a Blueprint</h2>
+  <div class="bp-grid" id="blueprintList"></div>
+  <button class="menu-btn" style="margin-top:14px" onclick="backToMenu()">Back</button>
 </section>
 
 <!-- App -->
 <main class="wrap" id="appWrap" aria-label="Drawing application">
   <div class="toolbar">
+    <!-- Blueprint controls inside the app -->
+    <div class="seg">
+      <button id="pickBlueprint" class="btn">Pick Blueprint</button>
+      <button id="toggleBp" class="btn">Hide Blueprint</button>
+      <button id="clearBp" class="btn">Clear Blueprint</button>
+      <label for="bpOpacity">Opacity</label>
+      <input id="bpOpacity" type="range" min="0" max="100" value="30" />
+      <span id="bpOpacityVal">30%</span>
+    </div>
+
+    <!-- Drawing controls -->
     <div class="seg">
       <label for="color">Color</label>
       <input type="color" id="color" value="#ff0000">
@@ -89,49 +95,142 @@
     <button id="clear" class="btn">Clear</button>
     <button id="save" class="btn primary">Save PNG</button>
   </div>
+
   <div class="stage">
+    <!-- Two-layer canvas: blueprint (bottom) + drawing (top) -->
+    <canvas id="bp" width="1000" height="600"></canvas>
     <canvas id="draw" width="1000" height="600"></canvas>
   </div>
 </main>
 
-<!-- Help/About Overlay -->
-<section id="overlay" style="display:none;position:fixed;inset:0;
-background:rgba(0,0,0,.85);color:white;z-index:10;align-items:center;justify-content:center;
-text-align:center;padding:24px;">
+<!-- About / Help overlay (reuses picker UI, so keep simple) -->
+<section id="overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);color:white;z-index:10;align-items:center;justify-content:center;text-align:center;padding:24px;">
   <div id="overlayContent" style="max-width:760px"></div>
-  <button style="margin-top:20px;padding:10px 16px;cursor:pointer;border:none;
-  border-radius:8px;background:var(--accent);color:#071333;font-weight:700"
-  onclick="closeOverlay()">Close</button>
+  <button class="menu-btn" style="margin-top:16px" onclick="closeOverlay()">Close</button>
 </section>
 
 <script>
-/* Menu / Overlay controls */
+/* ---------- MENU / PAGES ---------- */
 function showApp(){
   document.getElementById('menu').style.display='none';
+  document.getElementById('blueprintMenu').style.display='none';
   document.getElementById('appWrap').style.display='block';
-  document.getElementById('overlay').style.display='none';
-  saveState(); // initialize undo history
-}
-function showHelp(){
-  const ov = document.getElementById('overlay');
-  ov.style.display='flex';
-  document.getElementById('overlayContent').innerHTML =
-    "<h2>Help</h2><p>Select a color and brush size, then draw with mouse, pen, or touch.<br>" +
-    "Use the Eraser to remove lines. Undo/Redo are available.<br>" +
-    "Save PNG downloads your drawing.</p>";
+  saveState(); // prime undo history
 }
 function showAbout(){
   const ov = document.getElementById('overlay');
   ov.style.display='flex';
   document.getElementById('overlayContent').innerHTML =
-    "<h2>About Depictly</h2><p>Depictly is a simple online drawing app focused on speed and clarity. " +
-    "It works without installing anything and supports mouse, pen, and touch.</p>";
+    "<h2>About Depictly</h2><p>Depictly is a simple online drawing app focused on speed and clarity. It supports mouse, pen, and touch.</p>";
 }
 function closeOverlay(){ document.getElementById('overlay').style.display='none'; }
 
-/* Drawing logic */
-const canvas = document.getElementById('draw');
-const ctx = canvas.getContext('2d');
+function showBlueprintMenu(){
+  document.getElementById('menu').style.display='none';
+  document.getElementById('appWrap').style.display='none';
+  document.getElementById('blueprintMenu').style.display='block';
+  renderBlueprintList();
+}
+function backToMenu(){
+  document.getElementById('blueprintMenu').style.display='none';
+  document.getElementById('menu').style.display='flex';
+}
+</script>
+
+<script>
+/* ---------- BLUEPRINTS (list + layer) ---------- */
+const BLUEPRINTS = [
+  { name: "Dress (Basic)",  src: "blueprints/dress-basic.png" },
+  { name: "Dress (Fancy)",  src: "blueprints/dress-fancy.png" },
+  { name: "Tuxedo",         src: "blueprints/tuxedo.png" },
+  { name: "Shirt",          src: "blueprints/shirt.png" },
+  { name: "T-Shirt",        src: "blueprints/tshirt.png" },
+  { name: "Sneaker",        src: "blueprints/sneaker.png" }
+];
+
+const bpCanvas = document.getElementById('bp');
+const bpCtx    = bpCanvas.getContext('2d');
+const drawCanvas = document.getElementById('draw');
+const ctx = drawCanvas.getContext('2d');
+const bpOpacityInput = document.getElementById('bpOpacity');
+const bpOpacityVal = document.getElementById('bpOpacityVal');
+const toggleBpBtn = document.getElementById('toggleBp');
+const clearBpBtn  = document.getElementById('clearBp');
+const pickBpBtn   = document.getElementById('pickBlueprint');
+
+let blueprintImage = null;
+let blueprintVisible = true;
+let blueprintOpacity = parseInt(bpOpacityInput.value, 10) / 100;
+
+function renderBlueprintList(){
+  const list = document.getElementById('blueprintList');
+  list.innerHTML = '';
+  BLUEPRINTS.forEach((b) => {
+    const card = document.createElement('div');
+    card.className = 'bp-card';
+    card.innerHTML = `
+      <img src="${b.src}" alt="${b.name}">
+      <div class="bp-name">${b.name}</div>
+    `;
+    card.onclick = () => {
+      startWithBlueprint(b.src);
+    };
+    list.appendChild(card);
+  });
+}
+
+function startWithBlueprint(src){
+  document.getElementById('blueprintMenu').style.display='none';
+  document.getElementById('appWrap').style.display='block';
+  setBlueprint(src);
+  saveState(); // prime undo after layer shown
+}
+
+function setBlueprint(src){
+  const img = new Image();
+  img.src = src;
+  img.onload = () => {
+    blueprintImage = img;
+    drawBlueprint();
+  };
+}
+
+function drawBlueprint(){
+  bpCtx.clearRect(0,0,bpCanvas.width,bpCanvas.height);
+  if (!blueprintImage || !blueprintVisible) return;
+  // Fit image to canvas while preserving aspect ratio
+  const cw = bpCanvas.width, ch = bpCanvas.height;
+  const iw = blueprintImage.width, ih = blueprintImage.height;
+  const scale = Math.min(cw/iw, ch/ih);
+  const w = iw * scale, h = ih * scale;
+  const x = (cw - w) / 2, y = (ch - h) / 2;
+
+  bpCtx.save();
+  bpCtx.globalAlpha = blueprintOpacity;
+  bpCtx.drawImage(blueprintImage, x, y, w, h);
+  bpCtx.restore();
+}
+
+/* UI actions for blueprint layer */
+bpOpacityInput.oninput = (e)=>{
+  blueprintOpacity = parseInt(e.target.value,10) / 100;
+  bpOpacityVal.textContent = `${e.target.value}%`;
+  drawBlueprint();
+};
+toggleBpBtn.onclick = ()=>{
+  blueprintVisible = !blueprintVisible;
+  toggleBpBtn.textContent = blueprintVisible ? 'Hide Blueprint' : 'Show Blueprint';
+  drawBlueprint();
+};
+clearBpBtn.onclick = ()=>{
+  blueprintImage = null;
+  drawBlueprint();
+};
+pickBpBtn.onclick = ()=> showBlueprintMenu();
+</script>
+
+<script>
+/* ---------- DRAWING (top layer) + UNDO/REDO ---------- */
 let drawing = false;
 let eraser = false;
 let brushColor = document.getElementById('color').value;
@@ -140,36 +239,36 @@ let lastPoint = null;
 let history = [];
 let historyStep = -1;
 
+/* Undo/Redo with DataURL (simple) */
 function saveState(){
   history = history.slice(0, historyStep + 1);
-  history.push(canvas.toDataURL());
+  history.push(drawCanvas.toDataURL());
   historyStep++;
 }
 function restoreState(step){
-  let img = new Image();
+  const img = new Image();
   img.src = history[step];
   img.onload = () => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
     ctx.drawImage(img, 0, 0);
+    // redraw blueprint layer untouched
+    drawBlueprint();
   };
 }
 
-canvas.addEventListener('mousedown', (e) => {
+/* Mouse drawing on top canvas */
+drawCanvas.addEventListener('mousedown', (e) => {
   drawing = true;
   lastPoint = { x: e.offsetX, y: e.offsetY };
 });
-canvas.addEventListener('mouseup', () => {
+drawCanvas.addEventListener('mouseup', () => {
   if (drawing) saveState();
-  drawing = false;
-  lastPoint = null;
-  ctx.beginPath();
+  drawing = false; lastPoint = null; ctx.beginPath();
 });
-canvas.addEventListener('mouseleave', () => {
-  drawing = false;
-  lastPoint = null;
-  ctx.beginPath();
+drawCanvas.addEventListener('mouseleave', () => {
+  drawing = false; lastPoint = null; ctx.beginPath();
 });
-canvas.addEventListener('mousemove', (e) => {
+drawCanvas.addEventListener('mousemove', (e) => {
   if (!drawing) return;
   ctx.strokeStyle = eraser ? '#111432' : brushColor;
   ctx.lineWidth = brushSize;
@@ -181,27 +280,24 @@ canvas.addEventListener('mousemove', (e) => {
   lastPoint = { x: e.offsetX, y: e.offsetY };
 });
 
-// Touch support
-canvas.addEventListener('touchstart', (e) => {
+/* Touch */
+drawCanvas.addEventListener('touchstart', (e) => {
   e.preventDefault();
-  let rect = canvas.getBoundingClientRect();
-  let x = e.touches[0].clientX - rect.left;
-  let y = e.touches[0].clientY - rect.top;
-  drawing = true;
-  lastPoint = { x, y };
+  const r = drawCanvas.getBoundingClientRect();
+  const x = e.touches[0].clientX - r.left;
+  const y = e.touches[0].clientY - r.top;
+  drawing = true; lastPoint = { x, y };
 });
-canvas.addEventListener('touchend', () => {
+drawCanvas.addEventListener('touchend', () => {
   if (drawing) saveState();
-  drawing = false;
-  lastPoint = null;
-  ctx.beginPath();
+  drawing = false; lastPoint = null; ctx.beginPath();
 });
-canvas.addEventListener('touchmove', (e) => {
+drawCanvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
   if (!drawing) return;
-  let rect = canvas.getBoundingClientRect();
-  let x = e.touches[0].clientX - rect.left;
-  let y = e.touches[0].clientY - rect.top;
+  const r = drawCanvas.getBoundingClientRect();
+  const x = e.touches[0].clientX - r.left;
+  const y = e.touches[0].clientY - r.top;
   ctx.strokeStyle = eraser ? '#111432' : brushColor;
   ctx.lineWidth = brushSize;
   ctx.lineCap = 'round';
@@ -212,7 +308,7 @@ canvas.addEventListener('touchmove', (e) => {
   lastPoint = { x, y };
 });
 
-// Controls
+/* Controls */
 document.getElementById('color').oninput = e => brushColor = e.target.value;
 document.getElementById('size').oninput = e => {
   brushSize = e.target.value;
@@ -223,43 +319,49 @@ document.getElementById('eraser').onclick = () => {
   document.getElementById('eraser').textContent = `Eraser: ${eraser ? 'On' : 'Off'}`;
 };
 document.getElementById('undo').onclick = () => {
-  if (historyStep > 0) {
-    historyStep--;
-    restoreState(historyStep);
-  }
+  if (historyStep > 0) { historyStep--; restoreState(historyStep); }
 };
 document.getElementById('redo').onclick = () => {
-  if (historyStep < history.length - 1) {
-    historyStep++;
-    restoreState(historyStep);
-  }
+  if (historyStep < history.length - 1) { historyStep++; restoreState(historyStep); }
 };
 document.getElementById('clear').onclick = () => {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.beginPath();
-  saveState();
-};
-document.getElementById('save').onclick = () => {
-  const url = canvas.toDataURL('image/png');
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'drawing.png';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  ctx.beginPath(); saveState();
 };
 
-// Shortcuts
+/* Save PNG (composite of blueprint + drawing) */
+document.getElementById('save').onclick = () => {
+  const out = document.createElement('canvas');
+  out.width = drawCanvas.width; out.height = drawCanvas.height;
+  const octx = out.getContext('2d');
+  // draw blueprint first (if visible), then strokes
+  if (blueprintImage && blueprintVisible){
+    // re-apply same fit math to export
+    const cw = out.width, ch = out.height;
+    const iw = blueprintImage.width, ih = blueprintImage.height;
+    const scale = Math.min(cw/iw, ch/ih);
+    const w = iw * scale, h = ih * scale;
+    const x = (cw - w) / 2, y = (ch - h) / 2;
+    octx.globalAlpha = blueprintOpacity;
+    octx.drawImage(blueprintImage, x, y, w, h);
+    octx.globalAlpha = 1.0;
+  }
+  octx.drawImage(drawCanvas, 0, 0);
+  const url = out.toDataURL('image/png');
+  const a = document.createElement('a'); a.href = url; a.download = 'depictly_drawing.png'; a.click();
+};
+
+/* Shortcuts */
 document.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
-    document.getElementById('undo').click();
-    e.preventDefault();
-  }
-  if ((e.ctrlKey || e.metaKey) && (e.shiftKey && e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
-    document.getElementById('redo').click();
-    e.preventDefault();
-  }
+  if ((e.ctrlKey||e.metaKey) && !e.shiftKey && e.key.toLowerCase()==='z'){ document.getElementById('undo').click(); e.preventDefault(); }
+  if ((e.ctrlKey||e.metaKey) && ((e.shiftKey && e.key.toLowerCase()==='z') || e.key.toLowerCase()==='y')){ document.getElementById('redo').click(); e.preventDefault(); }
 });
+
+/* Initial page state */
+document.getElementById('menu').style.display='flex';
+document.getElementById('blueprintMenu').style.display='none';
+document.getElementById('appWrap').style.display='none';
+document.getElementById('overlay').style.display='none';
 </script>
 </body>
 </html>
