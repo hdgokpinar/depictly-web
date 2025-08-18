@@ -90,7 +90,7 @@
     <!-- Color + Fill -->
     <div class="seg">
       <label for="color">Color</label>
-      <input type="color" id="color" value="#ff0000">
+      <input type="color" id="color" value="#ff00aa">
       <button id="fillTool" class="btn" title="Fill area" aria-label="Fill area">
         <img src="images/fill-bucket.png" alt="" style="width:18px;height:18px;vertical-align:middle;margin:-2px 6px 0 0"> Fill
       </button>
@@ -176,6 +176,10 @@ let blueprintImage = null;
 let blueprintVisible = true;
 let blueprintOpacity = parseInt(bpOpacityInput.value, 10) / 100;
 
+/* MASK for crisp fill boundaries */
+let bpMask = null; // Uint8Array; 1 = wall, 0 = empty
+function invalidateBlueprintMask(){ bpMask = null; }
+
 /* DPR / resize */
 let dpr = Math.max(1, window.devicePixelRatio || 1);
 function fitSizePx() {
@@ -189,6 +193,7 @@ function resizeCanvases() {
   bpCanvas.width = Math.floor(w * dpr); bpCanvas.height = Math.floor(h * dpr);
   drawCanvas.width = Math.floor(w * dpr); drawCanvas.height = Math.floor(h * dpr);
   bpCtx.setTransform(dpr,0,0,dpr,0,0); ctx.setTransform(dpr,0,0,dpr,0,0);
+  invalidateBlueprintMask();    // mask depends on size/fit
   drawBlueprint(); if (historyStep >= 0) restoreState(historyStep);
 }
 window.addEventListener('resize', resizeCanvases);
@@ -221,7 +226,7 @@ function startWithBlueprint(src){
 }
 function setBlueprint(src){
   const img = new Image(); img.src = src;
-  img.onload = () => { blueprintImage = img; drawBlueprint(); };
+  img.onload = () => { blueprintImage = img; invalidateBlueprintMask(); drawBlueprint(); };
 }
 
 /* Draw blueprint to bp canvas (UI opacity respected) */
@@ -241,18 +246,70 @@ function drawBlueprint(){
 /* In-app blueprint controls */
 bpOpacityInput.oninput = (e)=>{ blueprintOpacity = parseInt(e.target.value,10)/100; bpOpacityVal.textContent = `${e.target.value}%`; drawBlueprint(); };
 toggleBpBtn.onclick = ()=>{ blueprintVisible = !blueprintVisible; toggleBpBtn.textContent = blueprintVisible ? 'Hide Blueprint' : 'Show Blueprint'; drawBlueprint(); };
-clearBpBtn.onclick = ()=>{ blueprintImage = null; drawBlueprint(); };
+clearBpBtn.onclick = ()=>{ blueprintImage = null; invalidateBlueprintMask(); drawBlueprint(); };
 pickBpBtn.onclick  = ()=> showBlueprintMenu();
+
+/* Build a binary mask of blueprint lines (threshold + 1px dilation) */
+function getBlueprintFitDevPx() {
+  if (!blueprintImage) return null;
+  const cw = drawCanvas.width, ch = drawCanvas.height;
+  const iw = blueprintImage.naturalWidth || blueprintImage.width;
+  const ih = blueprintImage.naturalHeight || blueprintImage.height;
+  const scale = Math.min(cw/iw, ch/ih);
+  const w = Math.floor(iw * scale), h = Math.floor(ih * scale);
+  const x = Math.floor((cw - w) / 2), y = Math.floor((ch - h) / 2);
+  return { x, y, w, h };
+}
+function buildBlueprintMask(){
+  const w = drawCanvas.width, h = drawCanvas.height;
+  const mask = new Uint8Array(w * h);
+  const fit = getBlueprintFitDevPx();
+  if (!blueprintImage || !fit) return mask;
+
+  const tmp = document.createElement('canvas');
+  tmp.width = w; tmp.height = h;
+  const tctx = tmp.getContext('2d');
+  tctx.clearRect(0,0,w,h);
+  tctx.drawImage(blueprintImage, fit.x, fit.y, fit.w, fit.h);
+
+  const img = tctx.getImageData(0,0,w,h);
+  const d = img.data;
+
+  const ALPHA_MIN = 40;  // ignore near-transparent pixels
+  const LUMA_MAX  = 180; // treat darker pixels as “line”
+  for (let p=0, i=0; p<w*h; p++, i+=4){
+    const a = d[i+3];
+    if (a > ALPHA_MIN){
+      const l = 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
+      if (l < LUMA_MAX) mask[p] = 1;
+    }
+  }
+
+  // 1px dilation for sturdier walls
+  const out = new Uint8Array(mask);
+  for (let y=1; y<h-1; y++){
+    let row = y*w;
+    for (let x=1; x<w-1; x++){
+      const p = row + x;
+      if (mask[p]){
+        out[p]   = 1;
+        out[p-1] = 1; out[p+1] = 1;
+        out[p-w] = 1; out[p+w] = 1;
+      }
+    }
+  }
+  return out;
+}
 </script>
 
 <script>
-/* ---------- Drawing + Undo/Redo + Fill (blueprint-aware) ---------- */
-const FILL_TOLERANCE = 40;   // unified tolerance for fill comparisons
-const MAX_HISTORY    = 40;   // cap undo stack to avoid memory blowups
+/* ---------- Drawing + Undo/Redo + Fill (mask-aware) ---------- */
+const FILL_TOLERANCE = 40;   // color tolerance on DRAW layer comparisons
+const MAX_HISTORY    = 40;   // cap undo stack
 
 let drawing = false;
 let fillMode = false;
-let isFilling = false; // busy guard for fill
+let isFilling = false; // busy guard
 let brushColor = document.getElementById('color').value;
 let brushSize = parseInt(document.getElementById('size').value, 10);
 let lastPoint = null;
@@ -271,7 +328,7 @@ function setStrokeMode(mode){
 function saveState(){
   history = history.slice(0, historyStep + 1);
   history.push(drawCanvas.toDataURL('image/png'));
-  if (history.length > MAX_HISTORY) { history.shift(); }
+  if (history.length > MAX_HISTORY) history.shift();
   historyStep = history.length - 1;
 }
 function restoreState(step){
@@ -288,10 +345,10 @@ drawCanvas.addEventListener('mousedown', (e) => {
   if (fillMode){ floodFillAt(p.x, p.y, brushColor, FILL_TOLERANCE); saveState(); return; }
   drawing = true; lastPoint = p;
 
-  // Draw a dot immediately so quick clicks leave a mark
+  // Dot on click
   ctx.lineWidth = brushSize; ctx.lineCap = 'round';
   if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
-  else ctx.strokeStyle = 'rgba(0,0,0,1)'; // ignored in destination-out
+  else ctx.strokeStyle = 'rgba(0,0,0,1)'; // ignored for destination-out
   ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 0.001, p.y); ctx.stroke();
 });
 drawCanvas.addEventListener('mouseup',   ()  => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
@@ -313,7 +370,7 @@ drawCanvas.addEventListener('touchstart', (e) => {
   if (fillMode){ floodFillAt(p.x, p.y, brushColor, FILL_TOLERANCE); saveState(); return; }
   drawing = true; lastPoint = p;
 
-  // dot on tap
+  // Dot on tap
   ctx.lineWidth = brushSize; ctx.lineCap = 'round';
   if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
   else ctx.strokeStyle = 'rgba(0,0,0,1)';
@@ -367,34 +424,9 @@ fillBtn.onclick = () => {
   if (fillMode && strokeMode === 'erase') setStrokeMode('paint');
 };
 
-/* --------- Blueprint-aware Flood Fill with VISITED mask ---------- */
-/* get blueprint placement in device pixels */
-function getBlueprintFitDevPx() {
-  if (!blueprintImage) return null;
-  const cw = drawCanvas.width, ch = drawCanvas.height;
-  const iw = blueprintImage.naturalWidth || blueprintImage.width;
-  const ih = blueprintImage.naturalHeight || blueprintImage.height;
-  const scale = Math.min(cw/iw, ch/ih);
-  const w = Math.floor(iw * scale), h = Math.floor(ih * scale);
-  const x = Math.floor((cw - w) / 2), y = Math.floor((ch - h) / 2);
-  return { x, y, w, h };
-}
-/* build composite (bp opaque + drawing) just for membership test */
-function getCompositeForFill() {
-  const w = drawCanvas.width, h = drawCanvas.height;
-  const comp = document.createElement('canvas'); comp.width = w; comp.height = h;
-  const cctx = comp.getContext('2d');
-  if (blueprintImage) {
-    const fit = getBlueprintFitDevPx();
-    if (fit) { cctx.globalAlpha = 1.0; cctx.drawImage(blueprintImage, fit.x, fit.y, fit.w, fit.h); }
-  }
-  cctx.drawImage(drawCanvas, 0, 0);
-  return cctx.getImageData(0, 0, w, h);
-}
-
-/* NEW: visited-aware scanline flood fill */
+/* --------- MASK-AWARE Flood Fill (no speckles) ---------- */
 function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
-  if (isFilling) return; // prevent overlaps
+  if (isFilling) return;
   isFilling = true;
   document.body.style.cursor = 'progress';
 
@@ -402,67 +434,61 @@ function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
     const x0 = Math.floor(xCss * dpr), y0 = Math.floor(yCss * dpr);
     const w = drawCanvas.width, h = drawCanvas.height;
 
-    // composite for boundary decisions (ignore alpha)
-    const compImg = getCompositeForFill(); const comp = compImg.data;
+    // Build mask if needed (depends on blueprint and canvas size)
+    if (!bpMask) bpMask = buildBlueprintMask();
 
-    // writable copy of DRAW layer
-    const img = ctx.getImageData(0, 0, w, h); const data = img.data;
+    // DRAW layer defines connectivity
+    const img = ctx.getImageData(0, 0, w, h);
+    const data = img.data;
 
-    const seedIdx = (y0 * w + x0) * 4;
-    const tr = comp[seedIdx], tg = comp[seedIdx + 1], tb = comp[seedIdx + 2];
+    const seed = (y0 * w + x0) * 4;
+    const sr = data[seed], sg = data[seed+1], sb = data[seed+2];
+
     const [fr, fg, fb] = hexToRgba(hexColor);
 
-    // if draw layer already exactly this color at seed, fast exit
-    if (data[seedIdx+3] === 255 && data[seedIdx]===fr && data[seedIdx+1]===fg && data[seedIdx+2]===fb) { isFilling=false; document.body.style.cursor=''; return; }
+    // Already same color at seed? no-op
+    if (data[seed+3] === 255 && sr===fr && sg===fg && sb===fb) { isFilling=false; document.body.style.cursor=''; return; }
 
-    // visited mask to avoid re-queuing same rows forever
     const visited = new Uint8Array(w * h);
 
+    function colorClose(r1,g1,b1,a1, r2,g2,b2,a2, tol){ return Math.abs(r1-r2)<=tol && Math.abs(g1-g2)<=tol && Math.abs(b1-b2)<=tol; }
+    function pixelMatchesDraw(idx){
+      return colorClose(data[idx], data[idx+1], data[idx+2], 255, sr, sg, sb, 255, tolerance);
+    }
     function targetAt(p, idx){
-      return !visited[p] && colorClose(comp[idx], comp[idx+1], comp[idx+2], 255, tr, tg, tb, 255, tolerance);
+      return !visited[p] && bpMask[p] === 0 && pixelMatchesDraw(idx);
     }
 
     const stack = [[x0, y0]];
     while (stack.length){
       let [cx, cy] = stack.pop();
 
-      // move left to start of span
-      let p = cy * w + cx;
-      let idx = p * 4;
+      // scan left to start of span
+      let p = cy*w + cx, idx = p*4;
       while (cx >= 0 && targetAt(p, idx)) { cx--; p--; idx -= 4; }
       cx++; p++; idx += 4;
 
       let spanUp = false, spanDown = false;
 
-      // fill the span to the right
+      // fill to the right
       while (cx < w) {
-        p = cy * w + cx;
-        idx = p * 4;
+        p = cy*w + cx; idx = p*4;
         if (!targetAt(p, idx)) break;
 
-        // write pixel & mark visited
         visited[p] = 1;
-        data[idx]   = fr;
-        data[idx+1] = fg;
-        data[idx+2] = fb;
-        data[idx+3] = 255;
+        data[idx]   = fr; data[idx+1] = fg; data[idx+2] = fb; data[idx+3] = 255;
 
-        // check the row above
+        // up
         if (cy > 0){
-          const upP = (cy - 1) * w + cx;
-          const upIdx = upP * 4;
-          if (targetAt(upP, upIdx)) {
-            if (!spanUp) { stack.push([cx, cy - 1]); spanUp = true; }
-          } else spanUp = false;
+          const upP = (cy-1)*w + cx, upIdx = upP*4;
+          if (targetAt(upP, upIdx)) { if (!spanUp){ stack.push([cx, cy-1]); spanUp = true; } }
+          else spanUp = false;
         }
-
-        // check the row below
-        if (cy < h - 1){
-          const dnP = (cy + 1) * w + cx;
-          const dnIdx = dnP * 4;
-          if (targetAt(dnP, dnIdx)) {
-            if (!spanDown) { stack.push([cx, cy + 1]); spanDown = true; }
-          } else spanDown = false;
+        // down
+        if (cy < h-1){
+          const dnP = (cy+1)*w + cx, dnIdx = dnP*4;
+          if (targetAt(dnP, dnIdx)) { if (!spanDown){ stack.push([cx, cy+1]); spanDown = true; } }
+          else spanDown = false;
         }
 
         cx++;
@@ -476,8 +502,13 @@ function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
   }
 }
 
-function hexToRgba(hex){ let h = hex.replace('#',''); if (h.length===3) h = h.split('').map(c=>c+c).join(''); const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255,255]; }
-function colorClose(r1,g1,b1,a1, r2,g2,b2,a2, tol){ return Math.abs(r1-r2)<=tol && Math.abs(g1-g2)<=tol && Math.abs(b1-b2)<=tol; }
+/* Utils */
+function hexToRgba(hex){
+  let h = hex.replace('#','');
+  if (h.length===3) h = h.split('').map(c=>c+c).join('');
+  const n=parseInt(h,16);
+  return [(n>>16)&255,(n>>8)&255,n&255,255];
+}
 
 /* Shortcuts */
 document.addEventListener('keydown', (e) => {
@@ -501,10 +532,10 @@ document.getElementById('returnMenu').onclick = () => {
 
   history = []; historyStep = -1;
 
-  setStrokeMode('paint'); // reset eraser/compositing
+  setStrokeMode('paint'); // reset eraser
   fillMode = false; fillBtn.classList.remove('primary'); drawCanvas.style.cursor = 'default';
 
-  blueprintImage = null; blueprintVisible = true;
+  blueprintImage = null; blueprintVisible = true; invalidateBlueprintMask();
   const toggleBtn = document.getElementById('toggleBp');
   if (toggleBtn) toggleBtn.textContent = 'Hide Blueprint';
 
