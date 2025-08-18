@@ -252,6 +252,7 @@ const MAX_HISTORY    = 40;   // cap undo stack to avoid memory blowups
 
 let drawing = false;
 let fillMode = false;
+let isFilling = false; // busy guard for fill
 let brushColor = document.getElementById('color').value;
 let brushSize = parseInt(document.getElementById('size').value, 10);
 let lastPoint = null;
@@ -290,7 +291,7 @@ drawCanvas.addEventListener('mousedown', (e) => {
   // Draw a dot immediately so quick clicks leave a mark
   ctx.lineWidth = brushSize; ctx.lineCap = 'round';
   if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
-  else ctx.strokeStyle = 'rgba(0,0,0,1)'; // color ignored in destination-out
+  else ctx.strokeStyle = 'rgba(0,0,0,1)'; // ignored in destination-out
   ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 0.001, p.y); ctx.stroke();
 });
 drawCanvas.addEventListener('mouseup',   ()  => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
@@ -366,7 +367,7 @@ fillBtn.onclick = () => {
   if (fillMode && strokeMode === 'erase') setStrokeMode('paint');
 };
 
-/* --------- Blueprint-aware Flood Fill ---------- */
+/* --------- Blueprint-aware Flood Fill with VISITED mask ---------- */
 /* get blueprint placement in device pixels */
 function getBlueprintFitDevPx() {
   if (!blueprintImage) return null;
@@ -391,56 +392,90 @@ function getCompositeForFill() {
   return cctx.getImageData(0, 0, w, h);
 }
 
+/* NEW: visited-aware scanline flood fill */
 function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
-  const x = Math.floor(xCss * dpr), y = Math.floor(yCss * dpr);
-  const w = drawCanvas.width, h = drawCanvas.height;
+  if (isFilling) return; // prevent overlaps
+  isFilling = true;
+  document.body.style.cursor = 'progress';
 
-  // composite for boundary decisions (ignore alpha)
-  const compImg = getCompositeForFill(); const comp = compImg.data;
+  try {
+    const x0 = Math.floor(xCss * dpr), y0 = Math.floor(yCss * dpr);
+    const w = drawCanvas.width, h = drawCanvas.height;
 
-  // writable copy of DRAW layer
-  const img = ctx.getImageData(0, 0, w, h); const data = img.data;
+    // composite for boundary decisions (ignore alpha)
+    const compImg = getCompositeForFill(); const comp = compImg.data;
 
-  const tIdx = (y * w + x) * 4;
-  const tr = comp[tIdx], tg = comp[tIdx + 1], tb = comp[tIdx + 2];
+    // writable copy of DRAW layer
+    const img = ctx.getImageData(0, 0, w, h); const data = img.data;
 
-  const [fr, fg, fb] = hexToRgba(hexColor);
+    const seedIdx = (y0 * w + x0) * 4;
+    const tr = comp[seedIdx], tg = comp[seedIdx + 1], tb = comp[seedIdx + 2];
+    const [fr, fg, fb] = hexToRgba(hexColor);
 
-  // NO false early-return on composite color similarity.
-  // Optional minimal no-op: if draw layer at target pixel is already exactly this color and opaque.
-  const dr0 = data[tIdx], dg0 = data[tIdx+1], db0 = data[tIdx+2], da0 = data[tIdx+3];
-  if (da0 === 255 && dr0 === fr && dg0 === fg && db0 === fb) return;
+    // if draw layer already exactly this color at seed, fast exit
+    if (data[seedIdx+3] === 255 && data[seedIdx]===fr && data[seedIdx+1]===fg && data[seedIdx+2]===fb) { isFilling=false; document.body.style.cursor=''; return; }
 
-  const stack = [[x, y]];
-  while (stack.length){
-    let [cx, cy] = stack.pop();
-    let idx = (cy*w + cx)*4;
+    // visited mask to avoid re-queuing same rows forever
+    const visited = new Uint8Array(w * h);
 
-    while (cx >= 0 && colorClose(comp[idx], comp[idx+1], comp[idx+2], 255, tr, tg, tb, 255, tolerance)) { cx--; idx -= 4; }
-    cx++; idx += 4;
-
-    let spanUp = false, spanDown = false;
-    while (cx < w && colorClose(comp[idx], comp[idx+1], comp[idx+2], 255, tr, tg, tb, 255, tolerance)) {
-      data[idx] = fr; data[idx+1] = fg; data[idx+2] = fb; data[idx+3] = 255;
-
-      if (cy > 0){
-        const upIdx = ((cy-1)*w + cx)*4;
-        const upOK = colorClose(comp[upIdx], comp[upIdx+1], comp[upIdx+2], 255, tr, tg, tb, 255, tolerance);
-        if (upOK && !spanUp) { stack.push([cx, cy-1]); spanUp = true; }
-        else if (!upOK) spanUp = false;
-      }
-      if (cy < h-1){
-        const dnIdx = ((cy+1)*w + cx)*4;
-        const dnOK = colorClose(comp[dnIdx], comp[dnIdx+1], comp[dnIdx+2], 255, tr, tg, tb, 255, tolerance);
-        if (dnOK && !spanDown) { stack.push([cx, cy+1]); spanDown = true; }
-        else if (!dnOK) spanDown = false;
-      }
-
-      cx++; idx += 4;
+    function targetAt(p, idx){
+      return !visited[p] && colorClose(comp[idx], comp[idx+1], comp[idx+2], 255, tr, tg, tb, 255, tolerance);
     }
+
+    const stack = [[x0, y0]];
+    while (stack.length){
+      let [cx, cy] = stack.pop();
+
+      // move left to start of span
+      let p = cy * w + cx;
+      let idx = p * 4;
+      while (cx >= 0 && targetAt(p, idx)) { cx--; p--; idx -= 4; }
+      cx++; p++; idx += 4;
+
+      let spanUp = false, spanDown = false;
+
+      // fill the span to the right
+      while (cx < w) {
+        p = cy * w + cx;
+        idx = p * 4;
+        if (!targetAt(p, idx)) break;
+
+        // write pixel & mark visited
+        visited[p] = 1;
+        data[idx]   = fr;
+        data[idx+1] = fg;
+        data[idx+2] = fb;
+        data[idx+3] = 255;
+
+        // check the row above
+        if (cy > 0){
+          const upP = (cy - 1) * w + cx;
+          const upIdx = upP * 4;
+          if (targetAt(upP, upIdx)) {
+            if (!spanUp) { stack.push([cx, cy - 1]); spanUp = true; }
+          } else spanUp = false;
+        }
+
+        // check the row below
+        if (cy < h - 1){
+          const dnP = (cy + 1) * w + cx;
+          const dnIdx = dnP * 4;
+          if (targetAt(dnP, dnIdx)) {
+            if (!spanDown) { stack.push([cx, cy + 1]); spanDown = true; }
+          } else spanDown = false;
+        }
+
+        cx++;
+      }
+    }
+
+    ctx.putImageData(img, 0, 0);
+  } finally {
+    isFilling = false;
+    document.body.style.cursor = '';
   }
-  ctx.putImageData(img, 0, 0);
 }
+
 function hexToRgba(hex){ let h = hex.replace('#',''); if (h.length===3) h = h.split('').map(c=>c+c).join(''); const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255,255]; }
 function colorClose(r1,g1,b1,a1, r2,g2,b2,a2, tol){ return Math.abs(r1-r2)<=tol && Math.abs(g1-g2)<=tol && Math.abs(b1-b2)<=tol; }
 
