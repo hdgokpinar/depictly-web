@@ -27,6 +27,10 @@
   .btn.primary{background:var(--accent);color:#0a0f2e}
 
   .stage{margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative;min-height:620px}
+  /* NEW: zoom/pan wrapper */
+  .stage-inner{position:relative;width:100%;height:100%;transform-origin:0 0;will-change:transform;touch-action:none;cursor:default}
+  .stage-inner.grab{cursor:grab}
+  .stage-inner.grabbing{cursor:grabbing}
   .stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;image-rendering:crisp-edges;display:block}
   #bp{z-index:0}
   #draw{z-index:1}
@@ -96,11 +100,19 @@
       </button>
     </div>
 
-    <!-- Brush -->
-    <div class="seg">
-      <label for="size">Size</label>
-      <input type="range" id="size" min="1" max="50" value="5">
-      <span id="sizeVal">5 px</span>
+    <!-- Brush size + (NEW) Zoom -->
+    <div class="seg" style="flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+        <label for="size">Size</label>
+        <input type="range" id="size" min="1" max="50" value="5">
+        <span id="sizeVal">5 px</span>
+      </div>
+      <!-- NEW: zoom row (no word label, just icon + slider + %) -->
+      <div style="display:flex;align-items:center;gap:8px;width:100%;margin-top:6px">
+        <img src="images/zoom.png" alt="" style="width:18px;height:18px">
+        <input type="range" id="zoom" min="50" max="400" value="100">
+        <span id="zoomVal">100%</span>
+      </div>
     </div>
 
     <button id="eraser" class="btn">Eraser: Off</button>
@@ -110,9 +122,12 @@
     <button id="save" class="btn primary">Save PNG</button>
   </div>
 
-  <div class="stage">
-    <canvas id="bp"></canvas>
-    <canvas id="draw"></canvas>
+  <div class="stage" id="stage">
+    <!-- NEW: zoom/pan wrapper around both canvases -->
+    <div class="stage-inner" id="zoomWrap">
+      <canvas id="bp"></canvas>
+      <canvas id="draw"></canvas>
+    </div>
   </div>
 </main>
 
@@ -172,6 +187,9 @@ const toggleBpBtn    = document.getElementById('toggleBp');
 const clearBpBtn     = document.getElementById('clearBp');
 const pickBpBtn      = document.getElementById('pickBlueprint');
 
+const stage    = document.getElementById('stage');
+const zoomWrap = document.getElementById('zoomWrap');
+
 let blueprintImage = null;
 let blueprintVisible = true;
 let blueprintOpacity = parseInt(bpOpacityInput.value, 10) / 100;
@@ -183,7 +201,6 @@ function invalidateBlueprintMask(){ bpMask = null; }
 /* DPR / resize */
 let dpr = Math.max(1, window.devicePixelRatio || 1);
 function fitSizePx() {
-  const stage = document.querySelector('.stage');
   const rect = stage.getBoundingClientRect();
   return { w: Math.max(320, Math.floor(rect.width)), h: Math.max(320, Math.floor(rect.height)) };
 }
@@ -195,15 +212,17 @@ function resizeCanvases() {
   bpCtx.setTransform(dpr,0,0,dpr,0,0); ctx.setTransform(dpr,0,0,dpr,0,0);
   invalidateBlueprintMask();    // mask depends on size/fit
   drawBlueprint(); if (historyStep >= 0) restoreState(historyStep);
+  applyView(); // keep current zoom/pan after resize
 }
 window.addEventListener('resize', resizeCanvases);
 
-/* Pointer mapping */
+/* Pointer mapping (robust under zoom/pan via DOMRect) */
 function getPosFromEvent(e, canvas) {
   const r = canvas.getBoundingClientRect();
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
   const clientY = e.touches ? e.touches[0].clientY : e.clientY;
   const cssW = canvas.width / dpr, cssH = canvas.height / dpr;
+  // r.width/height reflect the transformed (zoomed) size; scaling cancels out here
   return { x: (clientX - r.left) * (cssW / r.width), y: (clientY - r.top) * (cssH / r.height) };
 }
 
@@ -325,6 +344,7 @@ function setStrokeMode(mode){
   document.getElementById('eraser').textContent = `Eraser: ${mode === 'erase' ? 'On' : 'Off'}`;
 }
 
+/* UNDO/REDO */
 function saveState(){
   history = history.slice(0, historyStep + 1);
   history.push(drawCanvas.toDataURL('image/png'));
@@ -339,8 +359,149 @@ function restoreState(step){
   };
 }
 
-/* Mouse */
+/* -------- NEW: Zoom + Pan state -------- */
+let zoomFactor = 1.0;      // 1.0 = 100%
+let panX = 0, panY = 0;    // in CSS pixels
+let spaceDown = false;     // hold Space to pan (desktop)
+let panning = false;
+let panStartX = 0, panStartY = 0, viewStartX = 0, viewStartY = 0;
+
+const zoomSlider = document.getElementById('zoom');
+const zoomVal    = document.getElementById('zoomVal');
+
+function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+function applyView(){
+  // translate then scale: screen = T + s * world
+  zoomWrap.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomFactor})`;
+  zoomWrap.classList.toggle('grab', spaceDown && !panning);
+  zoomWrap.classList.toggle('grabbing', panning);
+}
+
+/* Zoom slider — zoom toward stage center */
+zoomSlider.oninput = (e) => {
+  const pct = parseInt(e.target.value, 10);
+  const newZoom = clamp(pct / 100, 0.5, 4.0);
+
+  const rect = stage.getBoundingClientRect();
+  const center = { x: rect.width/2, y: rect.height/2 };
+
+  // world point currently under the center
+  const wx = (center.x - panX) / zoomFactor;
+  const wy = (center.y - panY) / zoomFactor;
+
+  zoomFactor = newZoom;
+  panX = center.x - zoomFactor * wx;
+  panY = center.y - zoomFactor * wy;
+
+  zoomVal.textContent = `${pct}%`;
+  applyView();
+};
+
+/* Spacebar toggles pan mode (desktop) */
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && !spaceDown){
+    spaceDown = true;
+    applyView();
+    e.preventDefault();
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'Space'){
+    spaceDown = false;
+    panning = false;
+    applyView();
+  }
+});
+
+/* Pan with mouse while holding Space */
+zoomWrap.addEventListener('mousedown', (e) => {
+  if (!spaceDown) return;
+  panning = true;
+  panStartX = e.clientX; panStartY = e.clientY;
+  viewStartX = panX; viewStartY = panY;
+  applyView();
+});
+window.addEventListener('mousemove', (e) => {
+  if (!panning) return;
+  const dx = e.clientX - panStartX;
+  const dy = e.clientY - panStartY;
+  panX = viewStartX + dx;
+  panY = viewStartY + dy;
+  applyView();
+});
+window.addEventListener('mouseup', () => {
+  if (panning){ panning = false; applyView(); }
+});
+
+/* ---- Touch: two-finger pinch to zoom + two-finger drag to pan ---- */
+let gesture = { active:false, startZoom:1, startPanX:0, startPanY:0, startDist:0, worldAtMid:{x:0,y:0} };
+
+function touchMidpoint(touches){
+  const x = (touches[0].clientX + touches[1].clientX)/2;
+  const y = (touches[0].clientY + touches[1].clientY)/2;
+  return {x,y};
+}
+function touchDistance(touches){
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.hypot(dx,dy);
+}
+
+zoomWrap.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2){
+    e.preventDefault();
+    gesture.active = true;
+    gesture.startZoom = zoomFactor;
+    gesture.startPanX = panX; gesture.startPanY = panY;
+    gesture.startDist = touchDistance(e.touches);
+
+    const mid = touchMidpoint(e.touches);
+    const rect = stage.getBoundingClientRect();
+    const midLocal = { x: mid.x - rect.left, y: mid.y - rect.top };
+    // world point under midpoint at gesture start
+    gesture.worldAtMid = {
+      x: (midLocal.x - panX) / zoomFactor,
+      y: (midLocal.y - panY) / zoomFactor
+    };
+  }
+}, {passive:false});
+
+zoomWrap.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 2 && gesture.active){
+    e.preventDefault();
+    const dist = touchDistance(e.touches);
+    const mid = touchMidpoint(e.touches);
+    const rect = stage.getBoundingClientRect();
+    const midLocal = { x: mid.x - rect.left, y: mid.y - rect.top };
+
+    // scale from initial pinch distance
+    const scaleRatio = dist / Math.max(1, gesture.startDist);
+    const newZoom = clamp(gesture.startZoom * scaleRatio, 0.5, 4.0);
+
+    // pan so the same world point stays under current midpoint
+    panX = midLocal.x - newZoom * gesture.worldAtMid.x;
+    panY = midLocal.y - newZoom * gesture.worldAtMid.y;
+
+    zoomFactor = newZoom;
+
+    // sync slider & label
+    const pct = Math.round(zoomFactor * 100);
+    zoomSlider.value = pct;
+    zoomVal.textContent = pct + '%';
+
+    applyView();
+  }
+}, {passive:false});
+
+zoomWrap.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) { gesture.active = false; }
+}, {passive:false});
+zoomWrap.addEventListener('touchcancel', () => { gesture.active = false; }, {passive:false});
+
+/* ----------------- Drawing (mouse) ----------------- */
 drawCanvas.addEventListener('mousedown', (e) => {
+  if (spaceDown) return; // panning instead of drawing
   const p = getPosFromEvent(e, drawCanvas);
   if (fillMode){ floodFillAt(p.x, p.y, brushColor, FILL_TOLERANCE); saveState(); return; }
   drawing = true; lastPoint = p;
@@ -354,6 +515,7 @@ drawCanvas.addEventListener('mousedown', (e) => {
 drawCanvas.addEventListener('mouseup',   ()  => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mouseleave',()  => { drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mousemove', (e) => {
+  if (spaceDown) return; // panning with space
   if (!drawing || fillMode) return;
   const p = getPosFromEvent(e, drawCanvas);
   ctx.lineWidth = brushSize; ctx.lineCap = 'round';
@@ -363,9 +525,11 @@ drawCanvas.addEventListener('mousemove', (e) => {
   lastPoint = p;
 });
 
-/* Touch */
+/* ----------------- Drawing (touch) ----------------- */
 drawCanvas.addEventListener('touchstart', (e) => {
+  if (e.touches.length !== 1) return; // 2-finger handled by pinch/pan
   e.preventDefault();
+  if (spaceDown) return;
   const p = getPosFromEvent(e, drawCanvas);
   if (fillMode){ floodFillAt(p.x, p.y, brushColor, FILL_TOLERANCE); saveState(); return; }
   drawing = true; lastPoint = p;
@@ -375,19 +539,19 @@ drawCanvas.addEventListener('touchstart', (e) => {
   if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
   else ctx.strokeStyle = 'rgba(0,0,0,1)';
   ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 0.001, p.y); ctx.stroke();
-});
-drawCanvas.addEventListener('touchend', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
-drawCanvas.addEventListener('touchcancel', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
-function onTouchMove(e){
-  e.preventDefault(); if (!drawing || fillMode) return;
+}, {passive:false});
+drawCanvas.addEventListener('touchend', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); }, {passive:false});
+drawCanvas.addEventListener('touchcancel', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); }, {passive:false});
+drawCanvas.addEventListener('touchmove', (e) => {
+  if (e.touches.length !== 1) return; // pinch/pan path
+  e.preventDefault(); if (!drawing || fillMode || spaceDown) return;
   const p = getPosFromEvent(e, drawCanvas);
   ctx.lineWidth = brushSize; ctx.lineCap = 'round';
   if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
   else ctx.strokeStyle = 'rgba(0,0,0,1)';
   ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
   lastPoint = p;
-}
-drawCanvas.addEventListener('touchmove', onTouchMove, { passive: false });
+}, {passive:false});
 
 /* Controls */
 document.getElementById('color').oninput = e => brushColor = e.target.value;
@@ -536,6 +700,10 @@ document.getElementById('returnMenu').onclick = () => {
   fillMode = false; fillBtn.classList.remove('primary'); drawCanvas.style.cursor = 'default';
 
   blueprintImage = null; blueprintVisible = true; invalidateBlueprintMask();
+
+  // NEW: reset zoom/pan
+  zoomFactor = 1; panX = 0; panY = 0; zoomSlider.value = 100; zoomVal.textContent = '100%'; applyView();
+
   const toggleBtn = document.getElementById('toggleBp');
   if (toggleBtn) toggleBtn.textContent = 'Hide Blueprint';
 
@@ -553,6 +721,7 @@ document.getElementById('blueprintMenu').style.display='none';
 document.getElementById('appWrap').style.display='none';
 document.getElementById('overlay').style.display='none';
 setStrokeMode('paint');
+applyView(); // initial zoom/pan
 </script>
 </body>
 </html>
