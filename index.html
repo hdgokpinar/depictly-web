@@ -74,7 +74,7 @@
 
 <!-- App -->
 <main class="wrap" id="appWrap" aria-label="Drawing application">
-  <button id="returnMenu">⬅ Main Menu</button>
+  <button id="returnMenu" aria-label="Return to main menu and reset">⬅ Main Menu</button>
 
   <div class="toolbar">
     <!-- Blueprint controls -->
@@ -91,7 +91,7 @@
     <div class="seg">
       <label for="color">Color</label>
       <input type="color" id="color" value="#ff0000">
-      <button id="fillTool" class="btn" title="Fill area">
+      <button id="fillTool" class="btn" title="Fill area" aria-label="Fill area">
         <img src="images/fill-bucket.png" alt="" style="width:18px;height:18px;vertical-align:middle;margin:-2px 6px 0 0"> Fill
       </button>
     </div>
@@ -209,7 +209,7 @@ function renderBlueprintList(){
   BLUEPRINTS.forEach((b) => {
     const card = document.createElement('div');
     card.className = 'bp-card';
-    card.innerHTML = `<img src="${b.src}" alt="${b.name}"><div class="bp-name">${b.name}</div>`;
+    card.innerHTML = `<img src="${b.src}" alt="${b.name}" role="img"><div class="bp-name">${b.name}</div>`;
     card.onclick = () => startWithBlueprint(b.src);
     list.appendChild(card);
   });
@@ -247,17 +247,32 @@ pickBpBtn.onclick  = ()=> showBlueprintMenu();
 
 <script>
 /* ---------- Drawing + Undo/Redo + Fill (blueprint-aware) ---------- */
+const FILL_TOLERANCE = 40;   // unified tolerance for fill comparisons
+const MAX_HISTORY    = 40;   // cap undo stack to avoid memory blowups
+
 let drawing = false;
-let eraser = false;
 let fillMode = false;
 let brushColor = document.getElementById('color').value;
-let brushSize = document.getElementById('size').value;
+let brushSize = parseInt(document.getElementById('size').value, 10);
 let lastPoint = null;
 let history = [];
 let historyStep = -1;
 const fillBtn = document.getElementById('fillTool');
 
-function saveState(){ history = history.slice(0, historyStep + 1); history.push(drawCanvas.toDataURL()); historyStep++; }
+/* Paint/Eraser via compositing */
+let strokeMode = 'paint'; // 'paint' | 'erase'
+function setStrokeMode(mode){
+  strokeMode = mode;
+  ctx.globalCompositeOperation = (mode === 'erase') ? 'destination-out' : 'source-over';
+  document.getElementById('eraser').textContent = `Eraser: ${mode === 'erase' ? 'On' : 'Off'}`;
+}
+
+function saveState(){
+  history = history.slice(0, historyStep + 1);
+  history.push(drawCanvas.toDataURL('image/png'));
+  if (history.length > MAX_HISTORY) { history.shift(); }
+  historyStep = history.length - 1;
+}
 function restoreState(step){
   const img = new Image(); img.src = history[step];
   img.onload = () => {
@@ -269,16 +284,23 @@ function restoreState(step){
 /* Mouse */
 drawCanvas.addEventListener('mousedown', (e) => {
   const p = getPosFromEvent(e, drawCanvas);
-  if (fillMode){ floodFillAt(p.x, p.y, brushColor, 40); saveState(); return; }
+  if (fillMode){ floodFillAt(p.x, p.y, brushColor, FILL_TOLERANCE); saveState(); return; }
   drawing = true; lastPoint = p;
+
+  // Draw a dot immediately so quick clicks leave a mark
+  ctx.lineWidth = brushSize; ctx.lineCap = 'round';
+  if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
+  else ctx.strokeStyle = 'rgba(0,0,0,1)'; // color ignored in destination-out
+  ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 0.001, p.y); ctx.stroke();
 });
 drawCanvas.addEventListener('mouseup',   ()  => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mouseleave',()  => { drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mousemove', (e) => {
   if (!drawing || fillMode) return;
   const p = getPosFromEvent(e, drawCanvas);
-  ctx.strokeStyle = eraser ? '#111432' : brushColor;
   ctx.lineWidth = brushSize; ctx.lineCap = 'round';
+  if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
+  else ctx.strokeStyle = 'rgba(0,0,0,1)';
   ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
   lastPoint = p;
 });
@@ -287,43 +309,53 @@ drawCanvas.addEventListener('mousemove', (e) => {
 drawCanvas.addEventListener('touchstart', (e) => {
   e.preventDefault();
   const p = getPosFromEvent(e, drawCanvas);
-  if (fillMode){ floodFillAt(p.x, p.y, brushColor, 40); saveState(); return; }
+  if (fillMode){ floodFillAt(p.x, p.y, brushColor, FILL_TOLERANCE); saveState(); return; }
   drawing = true; lastPoint = p;
+
+  // dot on tap
+  ctx.lineWidth = brushSize; ctx.lineCap = 'round';
+  if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
+  else ctx.strokeStyle = 'rgba(0,0,0,1)';
+  ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 0.001, p.y); ctx.stroke();
 });
 drawCanvas.addEventListener('touchend', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('touchcancel', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
-drawCanvas.addEventListener('touchmove', (e) => {
+function onTouchMove(e){
   e.preventDefault(); if (!drawing || fillMode) return;
   const p = getPosFromEvent(e, drawCanvas);
-  ctx.strokeStyle = eraser ? '#111432' : brushColor;
   ctx.lineWidth = brushSize; ctx.lineCap = 'round';
+  if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
+  else ctx.strokeStyle = 'rgba(0,0,0,1)';
   ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
   lastPoint = p;
-});
+}
+drawCanvas.addEventListener('touchmove', onTouchMove, { passive: false });
 
 /* Controls */
 document.getElementById('color').oninput = e => brushColor = e.target.value;
-document.getElementById('size').oninput  = e => { brushSize = e.target.value; document.getElementById('sizeVal').textContent = `${brushSize} px`; };
-document.getElementById('eraser').onclick= () => { eraser = !eraser; document.getElementById('eraser').textContent = `Eraser: ${eraser ? 'On' : 'Off'}`; };
+document.getElementById('size').oninput  = e => { brushSize = parseInt(e.target.value,10); document.getElementById('sizeVal').textContent = `${brushSize} px`; };
+document.getElementById('eraser').onclick= () => { setStrokeMode(strokeMode === 'erase' ? 'paint' : 'erase'); };
 document.getElementById('undo').onclick  = () => { if (historyStep > 0) { historyStep--; restoreState(historyStep); } };
 document.getElementById('redo').onclick  = () => { if (historyStep < history.length - 1) { historyStep++; restoreState(historyStep); } };
 document.getElementById('clear').onclick = () => { const w = drawCanvas.width / dpr, h = drawCanvas.height / dpr; ctx.clearRect(0,0,w,h); ctx.beginPath(); saveState(); };
 
-/* Save PNG (composite export) */
+/* Save PNG (crisp export using device pixels) */
 document.getElementById('save').onclick = () => {
-  const cssW = drawCanvas.width / dpr, cssH = drawCanvas.height / dpr;
-  const out = document.createElement('canvas'); out.width = Math.floor(cssW * dpr); out.height = Math.floor(cssH * dpr);
-  const octx = out.getContext('2d'); octx.setTransform(dpr,0,0,dpr,0,0);
+  const wDev = drawCanvas.width, hDev = drawCanvas.height;
+  const out = document.createElement('canvas'); out.width = wDev; out.height = hDev;
+  const octx = out.getContext('2d');
+
   if (blueprintImage && blueprintVisible){
-    const iw = blueprintImage.naturalWidth || blueprintImage.width;
-    const ih = blueprintImage.naturalHeight || blueprintImage.height;
-    const scale = Math.min(cssW/iw, cssH/ih);
-    const w = iw * scale, h = ih * scale;
-    const x = (cssW - w) / 2, y = (cssH - h) / 2;
-    octx.globalAlpha = blueprintOpacity; octx.drawImage(blueprintImage, x, y, w, h); octx.globalAlpha = 1.0;
+    const fit = getBlueprintFitDevPx();
+    if (fit){
+      octx.globalAlpha = blueprintOpacity;
+      octx.drawImage(blueprintImage, fit.x, fit.y, fit.w, fit.h);
+      octx.globalAlpha = 1.0;
+    }
   }
-  octx.drawImage(drawCanvas, 0, 0, cssW, cssH);
-  const url = out.toDataURL('image/png'); const a = document.createElement('a'); a.href = url; a.download = 'depictly_drawing.png'; a.click();
+  octx.drawImage(drawCanvas, 0, 0);
+  const url = out.toDataURL('image/png');
+  const a = document.createElement('a'); a.href = url; a.download = 'depictly_drawing.png'; a.click();
 };
 
 /* Fill tool toggle */
@@ -331,7 +363,7 @@ fillBtn.onclick = () => {
   fillMode = !fillMode;
   fillBtn.classList.toggle('primary', fillMode);
   drawCanvas.style.cursor = fillMode ? 'crosshair' : 'default';
-  if (fillMode && eraser) { eraser = false; document.getElementById('eraser').textContent = 'Eraser: Off'; }
+  if (fillMode && strokeMode === 'erase') setStrokeMode('paint');
 };
 
 /* --------- Blueprint-aware Flood Fill ---------- */
@@ -359,21 +391,25 @@ function getCompositeForFill() {
   return cctx.getImageData(0, 0, w, h);
 }
 
-function floodFillAt(xCss, yCss, hexColor, tolerance = 32) {
+function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
   const x = Math.floor(xCss * dpr), y = Math.floor(yCss * dpr);
   const w = drawCanvas.width, h = drawCanvas.height;
 
-  // composite for boundary decisions
+  // composite for boundary decisions (ignore alpha)
   const compImg = getCompositeForFill(); const comp = compImg.data;
-
-  const tIdx = (y * w + x) * 4;
-  const tr = comp[tIdx], tg = comp[tIdx + 1], tb = comp[tIdx + 2]; // ignore alpha
 
   // writable copy of DRAW layer
   const img = ctx.getImageData(0, 0, w, h); const data = img.data;
+
+  const tIdx = (y * w + x) * 4;
+  const tr = comp[tIdx], tg = comp[tIdx + 1], tb = comp[tIdx + 2];
+
   const [fr, fg, fb] = hexToRgba(hexColor);
 
-  if (colorClose(tr, tg, tb, 255, fr, fg, fb, 255, tolerance)) return;
+  // NO false early-return on composite color similarity.
+  // Optional minimal no-op: if draw layer at target pixel is already exactly this color and opaque.
+  const dr0 = data[tIdx], dg0 = data[tIdx+1], db0 = data[tIdx+2], da0 = data[tIdx+3];
+  if (da0 === 255 && dr0 === fr && dg0 === fg && db0 === fb) return;
 
   const stack = [[x, y]];
   while (stack.length){
@@ -410,8 +446,11 @@ function colorClose(r1,g1,b1,a1, r2,g2,b2,a2, tol){ return Math.abs(r1-r2)<=tol 
 
 /* Shortcuts */
 document.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey||e.metaKey) && !e.shiftKey && e.key.toLowerCase()==='z'){ document.getElementById('undo').click(); e.preventDefault(); }
-  if ((e.ctrlKey||e.metaKey) && ((e.shiftKey && e.key.toLowerCase()==='z') || e.key.toLowerCase()==='y')){ document.getElementById('redo').click(); e.preventDefault(); }
+  const k = e.key.toLowerCase();
+  if ((e.ctrlKey||e.metaKey) && !e.shiftKey && k==='z'){ document.getElementById('undo').click(); e.preventDefault(); }
+  if ((e.ctrlKey||e.metaKey) && ((e.shiftKey && k==='z') || k==='y')){ document.getElementById('redo').click(); e.preventDefault(); }
+  if (!e.ctrlKey && !e.metaKey && k==='e'){ setStrokeMode(strokeMode==='erase' ? 'paint' : 'erase'); }
+  if (!e.ctrlKey && !e.metaKey && k==='f'){ fillBtn.click(); }
 });
 
 /* Return to Main Menu — full reset */
@@ -426,7 +465,8 @@ document.getElementById('returnMenu').onclick = () => {
   ctx.clearRect(0,0,drawW,drawH); bpCtx.clearRect(0,0,bpW,bpH); ctx.beginPath();
 
   history = []; historyStep = -1;
-  eraser = false; document.getElementById('eraser').textContent = 'Eraser: Off';
+
+  setStrokeMode('paint'); // reset eraser/compositing
   fillMode = false; fillBtn.classList.remove('primary'); drawCanvas.style.cursor = 'default';
 
   blueprintImage = null; blueprintVisible = true;
@@ -446,6 +486,7 @@ document.getElementById('menu').style.display='flex';
 document.getElementById('blueprintMenu').style.display='none';
 document.getElementById('appWrap').style.display='none';
 document.getElementById('overlay').style.display='none';
+setStrokeMode('paint');
 </script>
 </body>
 </html>
