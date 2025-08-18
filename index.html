@@ -17,7 +17,7 @@
   .menu-btn:hover{filter:brightness(1.15)}
 
   /* App */
-  .wrap{max-width:1100px;margin:0 auto;padding:12px;display:none}
+  .wrap{max-width:1100px;margin:0 auto;padding:12px;display:none;position:relative}
   .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--panel);border:1px solid #1f2550;border-radius:14px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
   .seg{display:flex;align-items:center;gap:8px;background:#111739;border:1px solid #222a61;padding:6px 8px;border-radius:12px}
   label{font-size:13px;opacity:.9}
@@ -42,6 +42,14 @@
   .bp-card:hover{filter:brightness(1.12);transform:translateY(-1px)}
   .bp-card img{width:100%;height:160px;object-fit:contain;background:#0f1436;border-radius:10px}
   .bp-name{font-size:13px;margin-top:6px;opacity:.9}
+
+  /* Return button (top-left, always visible in app) */
+  #returnMenu{
+    position:fixed;top:10px;left:10px;z-index:9999;
+    background:var(--muted);color:var(--text);border:none;border-radius:8px;
+    padding:8px 12px;font-weight:600;cursor:pointer;transition:.2s
+  }
+  #returnMenu:hover{filter:brightness(1.15)}
 </style>
 </head>
 <body>
@@ -70,6 +78,9 @@
 
 <!-- App -->
 <main class="wrap" id="appWrap" aria-label="Drawing application">
+  <!-- NEW: Return to main menu button -->
+  <button id="returnMenu">⬅ Main Menu</button>
+
   <div class="toolbar">
     <div class="seg">
       <button id="pickBlueprint" class="btn">Pick Blueprint</button>
@@ -195,7 +206,7 @@ function resizeCanvases() {
 
 window.addEventListener('resize', resizeCanvases);
 
-/* >>> UPDATED precise pointer mapping <<< */
+/* Precise pointer mapping */
 function getPosFromEvent(e, canvas) {
   const r = canvas.getBoundingClientRect();
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -207,12 +218,8 @@ function getPosFromEvent(e, canvas) {
   const scaleX = cssW / r.width;
   const scaleY = cssH / r.height;
 
-  return {
-    x: (clientX - r.left) * scaleX,
-    y: (clientY - r.top)  * scaleY
-  };
+  return { x: (clientX - r.left) * scaleX, y: (clientY - r.top) * scaleY };
 }
-/* ==================================== */
 
 function renderBlueprintList(){
   const list = document.getElementById('blueprintList');
@@ -374,6 +381,47 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey||e.metaKey) && !e.shiftKey && e.key.toLowerCase()==='z'){ document.getElementById('undo').click(); e.preventDefault(); }
   if ((e.ctrlKey||e.metaKey) && ((e.shiftKey && e.key.toLowerCase()==='z') || e.key.toLowerCase()==='y')){ document.getElementById('redo').click(); e.preventDefault(); }
 });
+
+/* NEW: Return to Main Menu — full reset */
+document.getElementById('returnMenu').onclick = () => {
+  // Hide app, show main menu
+  document.getElementById('appWrap').style.display = 'none';
+  document.getElementById('blueprintMenu').style.display = 'none';
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('menu').style.display = 'flex';
+
+  // Clear both canvases (DPR-aware)
+  const drawW = drawCanvas.width / dpr, drawH = drawCanvas.height / dpr;
+  const bpW   = bpCanvas.width   / dpr, bpH   = bpCanvas.height   / dpr;
+  ctx.clearRect(0, 0, drawW, drawH);
+  bpCtx.clearRect(0, 0, bpW, bpH);
+  ctx.beginPath();
+
+  // Reset history
+  history = [];
+  historyStep = -1;
+
+  // Reset tools
+  eraser = false;
+  const eraserBtn = document.getElementById('eraser');
+  if (eraserBtn) eraserBtn.textContent = 'Eraser: Off';
+
+  // Reset blueprint state
+  blueprintImage   = null;
+  blueprintVisible = true;
+  const toggleBtn = document.getElementById('toggleBp');
+  if (toggleBtn) toggleBtn.textContent = 'Hide Blueprint';
+
+  // Reset opacity to 30% and label
+  const bpSlider = document.getElementById('bpOpacity');
+  const bpLabel  = document.getElementById('bpOpacityVal');
+  if (bpSlider)  bpSlider.value = 30;
+  if (bpLabel)   bpLabel.textContent = '30%';
+  blueprintOpacity = 0.30;
+
+  // Repaint clean state
+  drawBlueprint();
+};
 
 /* Initial state */
 document.getElementById('menu').style.display='flex';
