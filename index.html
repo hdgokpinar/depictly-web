@@ -43,7 +43,7 @@
   .bp-card img{width:100%;height:160px;object-fit:contain;background:#0f1436;border-radius:10px}
   .bp-name{font-size:13px;margin-top:6px;opacity:.9}
 
-  /* Return button (top-left, always visible in app) */
+  /* Return button */
   #returnMenu{
     position:fixed;top:10px;left:10px;z-index:9999;
     background:var(--muted);color:var(--text);border:none;border-radius:8px;
@@ -78,10 +78,11 @@
 
 <!-- App -->
 <main class="wrap" id="appWrap" aria-label="Drawing application">
-  <!-- NEW: Return to main menu button -->
+  <!-- Return to main menu -->
   <button id="returnMenu">⬅ Main Menu</button>
 
   <div class="toolbar">
+    <!-- Blueprint controls -->
     <div class="seg">
       <button id="pickBlueprint" class="btn">Pick Blueprint</button>
       <button id="toggleBp" class="btn">Hide Blueprint</button>
@@ -91,15 +92,22 @@
       <span id="bpOpacityVal">30%</span>
     </div>
 
+    <!-- Color + FILL tool -->
     <div class="seg">
       <label for="color">Color</label>
       <input type="color" id="color" value="#ff0000">
+      <button id="fillTool" class="btn" title="Fill area">
+        <img src="images/fill-bucket.png" alt="" style="width:18px;height:18px;vertical-align:middle;margin:-2px 6px 0 0"> Fill
+      </button>
     </div>
+
+    <!-- Brush -->
     <div class="seg">
       <label for="size">Size</label>
       <input type="range" id="size" min="1" max="50" value="5">
       <span id="sizeVal">5 px</span>
     </div>
+
     <button id="eraser" class="btn">Eraser: Off</button>
     <button id="undo" class="btn">Undo</button>
     <button id="redo" class="btn">Redo</button>
@@ -272,14 +280,17 @@ pickBpBtn.onclick  = ()=> showBlueprintMenu();
 </script>
 
 <script>
-/* ---------- Drawing layer + undo/redo ---------- */
+/* ---------- Drawing layer + undo/redo + FILL ---------- */
 let drawing = false;
 let eraser = false;
+let fillMode = false;     // NEW: fill tool toggle
 let brushColor = document.getElementById('color').value;
 let brushSize = document.getElementById('size').value;
 let lastPoint = null;
 let history = [];
 let historyStep = -1;
+
+const fillBtn = document.getElementById('fillTool');
 
 function saveState(){
   history = history.slice(0, historyStep + 1);
@@ -298,11 +309,19 @@ function restoreState(step){
 }
 
 /* Mouse */
-drawCanvas.addEventListener('mousedown', (e) => { drawing = true; lastPoint = getPosFromEvent(e, drawCanvas); });
+drawCanvas.addEventListener('mousedown', (e) => {
+  const p = getPosFromEvent(e, drawCanvas);
+  if (fillMode){
+    floodFillAt(p.x, p.y, brushColor, 40); // tolerance 40/255
+    saveState();
+    return;
+  }
+  drawing = true; lastPoint = p;
+});
 drawCanvas.addEventListener('mouseup',   ()  => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mouseleave',()  => { drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mousemove', (e) => {
-  if (!drawing) return;
+  if (!drawing || fillMode) return;
   const p = getPosFromEvent(e, drawCanvas);
   ctx.strokeStyle = eraser ? '#111432' : brushColor;
   ctx.lineWidth = brushSize;
@@ -317,13 +336,18 @@ drawCanvas.addEventListener('mousemove', (e) => {
 /* Touch */
 drawCanvas.addEventListener('touchstart', (e) => {
   e.preventDefault();
-  drawing = true;
-  lastPoint = getPosFromEvent(e, drawCanvas);
+  const p = getPosFromEvent(e, drawCanvas);
+  if (fillMode){
+    floodFillAt(p.x, p.y, brushColor, 40);
+    saveState();
+    return;
+  }
+  drawing = true; lastPoint = p;
 });
 drawCanvas.addEventListener('touchend', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('touchcancel', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('touchmove', (e) => {
-  e.preventDefault(); if (!drawing) return;
+  e.preventDefault(); if (!drawing || fillMode) return;
   const p = getPosFromEvent(e, drawCanvas);
   ctx.strokeStyle = eraser ? '#111432' : brushColor;
   ctx.lineWidth = brushSize;
@@ -376,50 +400,121 @@ document.getElementById('save').onclick = () => {
   const a = document.createElement('a'); a.href = url; a.download = 'depictly_drawing.png'; a.click();
 };
 
+/* Fill tool toggle */
+fillBtn.onclick = () => {
+  fillMode = !fillMode;
+  fillBtn.classList.toggle('primary', fillMode);
+  drawCanvas.style.cursor = fillMode ? 'crosshair' : 'default';
+  // turn eraser off when enabling fill
+  if (fillMode && eraser) { eraser = false; document.getElementById('eraser').textContent = 'Eraser: Off'; }
+};
+
+/* Flood fill (scanline BFS) */
+function floodFillAt(xCss, yCss, hexColor, tolerance=32){
+  // Convert CSS coords to device pixels
+  const x = Math.floor(xCss * dpr);
+  const y = Math.floor(yCss * dpr);
+
+  const w = drawCanvas.width, h = drawCanvas.height;
+  const img = ctx.getImageData(0, 0, w, h);
+  const data = img.data;
+
+  const targetIdx = (y * w + x) * 4;
+  const tr = data[targetIdx], tg = data[targetIdx+1], tb = data[targetIdx+2], ta = data[targetIdx+3];
+
+  const [fr, fg, fb, fa] = hexToRgba(hexColor);
+
+  // If target already similar to fill color, skip
+  if (colorClose(tr,tg,tb,ta, fr,fg,fb,255, tolerance)) return;
+
+  const stack = [[x,y]];
+  const visited = new Uint8Array(w*h);
+
+  while (stack.length){
+    let [cx, cy] = stack.pop();
+    let idx = (cy*w + cx) * 4;
+
+    // Move left to find start of span
+    while (cx >= 0 && colorClose(data[idx],data[idx+1],data[idx+2],data[idx+3], tr,tg,tb,ta, tolerance)){
+      cx--; idx -= 4;
+    }
+    cx++; idx += 4;
+
+    let spanUp = false, spanDown = false;
+    while (cx < w && colorClose(data[idx],data[idx+1],data[idx+2],data[idx+3], tr,tg,tb,ta, tolerance)){
+      // color pixel
+      data[idx]   = fr;
+      data[idx+1] = fg;
+      data[idx+2] = fb;
+      data[idx+3] = 255;
+
+      // up
+      if (cy > 0){
+        const upIdx = ((cy-1)*w + cx)*4;
+        const upOK = colorClose(data[upIdx],data[upIdx+1],data[upIdx+2],data[upIdx+3], tr,tg,tb,ta, tolerance);
+        if (upOK && !spanUp){ stack.push([cx, cy-1]); spanUp = true; }
+        else if (!upOK) spanUp = false;
+      }
+      // down
+      if (cy < h-1){
+        const dnIdx = ((cy+1)*w + cx)*4;
+        const dnOK = colorClose(data[dnIdx],data[dnIdx+1],data[dnIdx+2],data[dnIdx+3], tr,tg,tb,ta, tolerance);
+        if (dnOK && !spanDown){ stack.push([cx, cy+1]); spanDown = true; }
+        else if (!dnOK) spanDown = false;
+      }
+
+      cx++; idx += 4;
+    }
+  }
+
+  ctx.putImageData(img, 0, 0);
+}
+
+function hexToRgba(hex){
+  let h = hex.replace('#','');
+  if (h.length === 3) h = h.split('').map(c=>c+c).join('');
+  const num = parseInt(h,16);
+  const r = (num>>16)&255, g=(num>>8)&255, b=num&255;
+  return [r,g,b,255];
+}
+function colorClose(r1,g1,b1,a1, r2,g2,b2,a2, tol){
+  return Math.abs(r1-r2)<=tol && Math.abs(g1-g2)<=tol && Math.abs(b1-b2)<=tol; // ignore alpha for boundary
+}
+
 /* Shortcuts */
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey||e.metaKey) && !e.shiftKey && e.key.toLowerCase()==='z'){ document.getElementById('undo').click(); e.preventDefault(); }
   if ((e.ctrlKey||e.metaKey) && ((e.shiftKey && e.key.toLowerCase()==='z') || e.key.toLowerCase()==='y')){ document.getElementById('redo').click(); e.preventDefault(); }
 });
 
-/* NEW: Return to Main Menu — full reset */
+/* Return to Main Menu — full reset */
 document.getElementById('returnMenu').onclick = () => {
-  // Hide app, show main menu
   document.getElementById('appWrap').style.display = 'none';
   document.getElementById('blueprintMenu').style.display = 'none';
   document.getElementById('overlay').style.display = 'none';
   document.getElementById('menu').style.display = 'flex';
 
-  // Clear both canvases (DPR-aware)
   const drawW = drawCanvas.width / dpr, drawH = drawCanvas.height / dpr;
   const bpW   = bpCanvas.width   / dpr, bpH   = bpCanvas.height   / dpr;
   ctx.clearRect(0, 0, drawW, drawH);
   bpCtx.clearRect(0, 0, bpW, bpH);
   ctx.beginPath();
 
-  // Reset history
-  history = [];
-  historyStep = -1;
+  history = []; historyStep = -1;
 
-  // Reset tools
-  eraser = false;
-  const eraserBtn = document.getElementById('eraser');
-  if (eraserBtn) eraserBtn.textContent = 'Eraser: Off';
+  eraser = false; document.getElementById('eraser').textContent = 'Eraser: Off';
+  fillMode = false; fillBtn.classList.remove('primary'); drawCanvas.style.cursor = 'default';
 
-  // Reset blueprint state
-  blueprintImage   = null;
-  blueprintVisible = true;
+  blueprintImage = null; blueprintVisible = true;
   const toggleBtn = document.getElementById('toggleBp');
   if (toggleBtn) toggleBtn.textContent = 'Hide Blueprint';
 
-  // Reset opacity to 30% and label
   const bpSlider = document.getElementById('bpOpacity');
   const bpLabel  = document.getElementById('bpOpacityVal');
   if (bpSlider)  bpSlider.value = 30;
   if (bpLabel)   bpLabel.textContent = '30%';
   blueprintOpacity = 0.30;
 
-  // Repaint clean state
   drawBlueprint();
 };
 
