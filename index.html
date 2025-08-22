@@ -27,7 +27,7 @@
   .btn.primary{background:var(--accent);color:#0a0f2e}
 
   .stage{margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative;min-height:620px}
-  /* NEW: zoom/pan wrapper */
+  /* Zoom/Pan wrapper */
   .stage-inner{position:relative;width:100%;height:100%;transform-origin:0 0;will-change:transform;touch-action:none;cursor:default}
   .stage-inner.grab{cursor:grab}
   .stage-inner.grabbing{cursor:grabbing}
@@ -100,18 +100,39 @@
       </button>
     </div>
 
-    <!-- Brush size + (NEW) Zoom -->
+    <!-- Brush size + Zoom + Paint Type -->
     <div class="seg" style="flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:8px">
         <label for="size">Size</label>
         <input type="range" id="size" min="1" max="50" value="5">
         <span id="sizeVal">5 px</span>
       </div>
-      <!-- NEW: zoom row (no word label, just icon + slider + %) -->
+
+      <!-- Zoom row (icon only) -->
       <div style="display:flex;align-items:center;gap:8px;width:100%;margin-top:6px">
         <img src="images/zoom.png" alt="" style="width:18px;height:18px">
         <input type="range" id="zoom" min="50" max="400" value="100">
         <span id="zoomVal">100%</span>
+      </div>
+
+      <!-- Paint Type + Glitter controls -->
+      <div style="display:flex;align-items:center;gap:8px;width:100%;margin-top:6px;flex-wrap:wrap">
+        <label for="paintType">Paint</label>
+        <select id="paintType">
+          <option value="solid" selected>Solid</option>
+          <option value="glitter">Glitter</option>
+        </select>
+
+        <!-- Shown only when glitter -->
+        <div id="glitterControls" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <label for="glitterDensity">Density</label>
+          <input id="glitterDensity" type="range" min="0" max="3" step="0.1" value="1.2">
+          <span id="glitterDensityVal">1.2</span>
+
+          <label for="glitterSize">Size</label>
+          <input id="glitterSize" type="range" min="1" max="8" step="0.5" value="3">
+          <span id="glitterSizeVal">3</span>
+        </div>
       </div>
     </div>
 
@@ -123,7 +144,6 @@
   </div>
 
   <div class="stage" id="stage">
-    <!-- NEW: zoom/pan wrapper around both canvases -->
     <div class="stage-inner" id="zoomWrap">
       <canvas id="bp"></canvas>
       <canvas id="draw"></canvas>
@@ -222,7 +242,6 @@ function getPosFromEvent(e, canvas) {
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
   const clientY = e.touches ? e.touches[0].clientY : e.clientY;
   const cssW = canvas.width / dpr, cssH = canvas.height / dpr;
-  // r.width/height reflect the transformed (zoomed) size; scaling cancels out here
   return { x: (clientX - r.left) * (cssW / r.width), y: (clientY - r.top) * (cssH / r.height) };
 }
 
@@ -322,13 +341,13 @@ function buildBlueprintMask(){
 </script>
 
 <script>
-/* ---------- Drawing + Undo/Redo + Fill (mask-aware) ---------- */
-const FILL_TOLERANCE = 40;   // color tolerance on DRAW layer comparisons
-const MAX_HISTORY    = 40;   // cap undo stack
+/* ---------- Drawing + Undo/Redo + Fill (mask-aware) + Zoom/Pan + Glitter ---------- */
+const FILL_TOLERANCE = 40;
+const MAX_HISTORY    = 40;
 
 let drawing = false;
 let fillMode = false;
-let isFilling = false; // busy guard
+let isFilling = false;
 let brushColor = document.getElementById('color').value;
 let brushSize = parseInt(document.getElementById('size').value, 10);
 let lastPoint = null;
@@ -343,6 +362,27 @@ function setStrokeMode(mode){
   ctx.globalCompositeOperation = (mode === 'erase') ? 'destination-out' : 'source-over';
   document.getElementById('eraser').textContent = `Eraser: ${mode === 'erase' ? 'On' : 'Off'}`;
 }
+
+/* Paint Type */
+const paintTypeSel = document.getElementById('paintType');
+const glitterControls = document.getElementById('glitterControls');
+const glitterDensityInput = document.getElementById('glitterDensity');
+const glitterDensityVal = document.getElementById('glitterDensityVal');
+const glitterSizeInput = document.getElementById('glitterSize');
+const glitterSizeVal = document.getElementById('glitterSizeVal');
+
+let paintType = paintTypeSel.value; // 'solid' | 'glitter'
+let glitterDensity = parseFloat(glitterDensityInput.value); // particles per pixel unit multiplier
+let glitterSize = parseFloat(glitterSizeInput.value);       // base sparkle size (px)
+
+paintTypeSel.onchange = () => {
+  paintType = paintTypeSel.value;
+  glitterControls.style.display = (paintType === 'glitter') ? 'flex' : 'none';
+};
+glitterControls.style.display = (paintType === 'glitter') ? 'flex' : 'none';
+
+glitterDensityInput.oninput = (e)=>{ glitterDensity = parseFloat(e.target.value); glitterDensityVal.textContent = glitterDensity.toFixed(1); };
+glitterSizeInput.oninput = (e)=>{ glitterSize = parseFloat(e.target.value); glitterSizeVal.textContent = glitterSize.toString(); };
 
 /* UNDO/REDO */
 function saveState(){
@@ -359,62 +399,40 @@ function restoreState(step){
   };
 }
 
-/* -------- NEW: Zoom + Pan state -------- */
-let zoomFactor = 1.0;      // 1.0 = 100%
-let panX = 0, panY = 0;    // in CSS pixels
-let spaceDown = false;     // hold Space to pan (desktop)
+/* -------- Zoom + Pan state -------- */
+let zoomFactor = 1.0;
+let panX = 0, panY = 0;
+let spaceDown = false;
 let panning = false;
 let panStartX = 0, panStartY = 0, viewStartX = 0, viewStartY = 0;
 
 const zoomSlider = document.getElementById('zoom');
 const zoomVal    = document.getElementById('zoomVal');
-
 function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
-
 function applyView(){
-  // translate then scale: screen = T + s * world
   zoomWrap.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomFactor})`;
   zoomWrap.classList.toggle('grab', spaceDown && !panning);
   zoomWrap.classList.toggle('grabbing', panning);
 }
-
-/* Zoom slider — zoom toward stage center */
 zoomSlider.oninput = (e) => {
   const pct = parseInt(e.target.value, 10);
   const newZoom = clamp(pct / 100, 0.5, 4.0);
-
   const rect = stage.getBoundingClientRect();
   const center = { x: rect.width/2, y: rect.height/2 };
-
-  // world point currently under the center
   const wx = (center.x - panX) / zoomFactor;
   const wy = (center.y - panY) / zoomFactor;
-
   zoomFactor = newZoom;
   panX = center.x - zoomFactor * wx;
   panY = center.y - zoomFactor * wy;
-
   zoomVal.textContent = `${pct}%`;
   applyView();
 };
-
-/* Spacebar toggles pan mode (desktop) */
 document.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' && !spaceDown){
-    spaceDown = true;
-    applyView();
-    e.preventDefault();
-  }
+  if (e.code === 'Space' && !spaceDown){ spaceDown = true; applyView(); e.preventDefault(); }
 });
 document.addEventListener('keyup', (e) => {
-  if (e.code === 'Space'){
-    spaceDown = false;
-    panning = false;
-    applyView();
-  }
+  if (e.code === 'Space'){ spaceDown = false; panning = false; applyView(); }
 });
-
-/* Pan with mouse while holding Space */
 zoomWrap.addEventListener('mousedown', (e) => {
   if (!spaceDown) return;
   panning = true;
@@ -433,10 +451,7 @@ window.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseup', () => {
   if (panning){ panning = false; applyView(); }
 });
-
-/* ---- Touch: two-finger pinch to zoom + two-finger drag to pan ---- */
 let gesture = { active:false, startZoom:1, startPanX:0, startPanY:0, startDist:0, worldAtMid:{x:0,y:0} };
-
 function touchMidpoint(touches){
   const x = (touches[0].clientX + touches[1].clientX)/2;
   const y = (touches[0].clientY + touches[1].clientY)/2;
@@ -447,7 +462,6 @@ function touchDistance(touches){
   const dy = touches[0].clientY - touches[1].clientY;
   return Math.hypot(dx,dy);
 }
-
 zoomWrap.addEventListener('touchstart', (e) => {
   if (e.touches.length === 2){
     e.preventDefault();
@@ -455,18 +469,15 @@ zoomWrap.addEventListener('touchstart', (e) => {
     gesture.startZoom = zoomFactor;
     gesture.startPanX = panX; gesture.startPanY = panY;
     gesture.startDist = touchDistance(e.touches);
-
     const mid = touchMidpoint(e.touches);
     const rect = stage.getBoundingClientRect();
     const midLocal = { x: mid.x - rect.left, y: mid.y - rect.top };
-    // world point under midpoint at gesture start
     gesture.worldAtMid = {
       x: (midLocal.x - panX) / zoomFactor,
       y: (midLocal.y - panY) / zoomFactor
     };
   }
 }, {passive:false});
-
 zoomWrap.addEventListener('touchmove', (e) => {
   if (e.touches.length === 2 && gesture.active){
     e.preventDefault();
@@ -474,30 +485,98 @@ zoomWrap.addEventListener('touchmove', (e) => {
     const mid = touchMidpoint(e.touches);
     const rect = stage.getBoundingClientRect();
     const midLocal = { x: mid.x - rect.left, y: mid.y - rect.top };
-
-    // scale from initial pinch distance
     const scaleRatio = dist / Math.max(1, gesture.startDist);
     const newZoom = clamp(gesture.startZoom * scaleRatio, 0.5, 4.0);
-
-    // pan so the same world point stays under current midpoint
     panX = midLocal.x - newZoom * gesture.worldAtMid.x;
     panY = midLocal.y - newZoom * gesture.worldAtMid.y;
-
     zoomFactor = newZoom;
-
-    // sync slider & label
     const pct = Math.round(zoomFactor * 100);
     zoomSlider.value = pct;
     zoomVal.textContent = pct + '%';
-
     applyView();
   }
 }, {passive:false});
-
 zoomWrap.addEventListener('touchend', (e) => {
   if (e.touches.length < 2) { gesture.active = false; }
 }, {passive:false});
 zoomWrap.addEventListener('touchcancel', () => { gesture.active = false; }, {passive:false});
+
+/* ----------------- Drawing helpers ----------------- */
+function beginDot(p){
+  ctx.lineWidth = brushSize; ctx.lineCap = 'round';
+  if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
+  else ctx.strokeStyle = 'rgba(0,0,0,1)'; // ignored in destination-out
+  ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 0.001, p.y); ctx.stroke();
+}
+
+/* Glitter utilities */
+function hexToRgbArr(hex){
+  let h = hex.replace('#',''); if(h.length===3) h = h.split('').map(c=>c+c).join('');
+  const n = parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function rgbToHsl(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max = Math.max(r,g,b), min=Math.min(r,g,b);
+  let h,s,l=(max+min)/2;
+  if(max===min){ h=s=0; } else {
+    const d=max-min;
+    s = l>0.5? d/(2-max-min) : d/(max+min);
+    switch(max){
+      case r: h=(g-b)/d + (g<b?6:0); break;
+      case g: h=(b-r)/d + 2; break;
+      case b: h=(r-g)/d + 4; break;
+    }
+    h/=6;
+  }
+  return [h*360,s,l];
+}
+function hslToRgb(h,s,l){
+  h/=360;
+  const hue2rgb=(p,q,t)=>{ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3 - t)*6; return p; };
+  let r,g,b;
+  if(s===0){ r=g=b=l; } else {
+    const q = l<0.5 ? l*(1+s) : l + s - l*s;
+    const p = 2*l - q;
+    r = hue2rgb(p,q,h+1/3); g = hue2rgb(p,q,h); b = hue2rgb(p,q,h-1/3);
+  }
+  return [Math.round(r*255),Math.round(g*255),Math.round(b*255)];
+}
+function glitterColor(baseHex){
+  const [r,g,b] = hexToRgbArr(baseHex);
+  const [h,s,l] = rgbToHsl(r,g,b);
+  const jitter = (Math.random()*14) - 7; // +/-7 deg hue jitter
+  const hl = Math.min(1, l + 0.15);      // slightly lighter
+  const rgb = hslToRgb(h + jitter, s, hl);
+  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.9 + Math.random()*0.1})`;
+}
+function drawGlitterAlongSegment(p0, p1){
+  const dx = p1.x - p0.x, dy = p1.y - p0.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist === 0) return;
+
+  // particles proportional to distance, brush size, and density
+  const count = Math.min(600, Math.ceil(dist * glitterDensity * (0.4 + brushSize*0.06)));
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter'; // additive sparkle
+  for (let i=0; i<count; i++){
+    const t = Math.random(); // random placement along segment
+    const x = p0.x + dx * t + (Math.random()-0.5)*1.2; // tiny jitter
+    const y = p0.y + dy * t + (Math.random()-0.5)*1.2;
+    const r = Math.max(0.5, glitterSize * (0.5 + Math.random()*0.8));
+    ctx.fillStyle = glitterColor(brushColor);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+
+    // occasional star-flare (tiny cross)
+    if (Math.random() < 0.06){
+      const rr = r*1.2;
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(x-rr, y-0.4, rr*2, 0.8);
+      ctx.fillRect(x-0.4, y-rr, 0.8, rr*2);
+    }
+  }
+  ctx.restore();
+}
 
 /* ----------------- Drawing (mouse) ----------------- */
 drawCanvas.addEventListener('mousedown', (e) => {
@@ -505,23 +584,25 @@ drawCanvas.addEventListener('mousedown', (e) => {
   const p = getPosFromEvent(e, drawCanvas);
   if (fillMode){ floodFillAt(p.x, p.y, brushColor, FILL_TOLERANCE); saveState(); return; }
   drawing = true; lastPoint = p;
-
-  // Dot on click
-  ctx.lineWidth = brushSize; ctx.lineCap = 'round';
-  if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
-  else ctx.strokeStyle = 'rgba(0,0,0,1)'; // ignored for destination-out
-  ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 0.001, p.y); ctx.stroke();
+  beginDot(p);
 });
 drawCanvas.addEventListener('mouseup',   ()  => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mouseleave',()  => { drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mousemove', (e) => {
-  if (spaceDown) return; // panning with space
+  if (spaceDown) return;
   if (!drawing || fillMode) return;
   const p = getPosFromEvent(e, drawCanvas);
+
+  // Base stroke (solid or eraser)
   ctx.lineWidth = brushSize; ctx.lineCap = 'round';
-  if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
-  else ctx.strokeStyle = 'rgba(0,0,0,1)';
+  if (strokeMode === 'paint') ctx.strokeStyle = brushColor; else ctx.strokeStyle = 'rgba(0,0,0,1)';
   ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+
+  // Glitter overlay
+  if (strokeMode === 'paint' && paintType === 'glitter'){
+    drawGlitterAlongSegment(lastPoint, p);
+  }
+
   lastPoint = p;
 });
 
@@ -533,12 +614,7 @@ drawCanvas.addEventListener('touchstart', (e) => {
   const p = getPosFromEvent(e, drawCanvas);
   if (fillMode){ floodFillAt(p.x, p.y, brushColor, FILL_TOLERANCE); saveState(); return; }
   drawing = true; lastPoint = p;
-
-  // Dot on tap
-  ctx.lineWidth = brushSize; ctx.lineCap = 'round';
-  if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
-  else ctx.strokeStyle = 'rgba(0,0,0,1)';
-  ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 0.001, p.y); ctx.stroke();
+  beginDot(p);
 }, {passive:false});
 drawCanvas.addEventListener('touchend', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); }, {passive:false});
 drawCanvas.addEventListener('touchcancel', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); }, {passive:false});
@@ -546,10 +622,15 @@ drawCanvas.addEventListener('touchmove', (e) => {
   if (e.touches.length !== 1) return; // pinch/pan path
   e.preventDefault(); if (!drawing || fillMode || spaceDown) return;
   const p = getPosFromEvent(e, drawCanvas);
+
   ctx.lineWidth = brushSize; ctx.lineCap = 'round';
-  if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
-  else ctx.strokeStyle = 'rgba(0,0,0,1)';
+  if (strokeMode === 'paint') ctx.strokeStyle = brushColor; else ctx.strokeStyle = 'rgba(0,0,0,1)';
   ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+
+  if (strokeMode === 'paint' && paintType === 'glitter'){
+    drawGlitterAlongSegment(lastPoint, p);
+  }
+
   lastPoint = p;
 }, {passive:false});
 
@@ -588,77 +669,50 @@ fillBtn.onclick = () => {
   if (fillMode && strokeMode === 'erase') setStrokeMode('paint');
 };
 
-/* --------- MASK-AWARE Flood Fill (no speckles) ---------- */
+/* --------- MASK-AWARE Flood Fill ---------- */
 function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
   if (isFilling) return;
   isFilling = true;
   document.body.style.cursor = 'progress';
-
   try {
     const x0 = Math.floor(xCss * dpr), y0 = Math.floor(yCss * dpr);
     const w = drawCanvas.width, h = drawCanvas.height;
-
-    // Build mask if needed (depends on blueprint and canvas size)
     if (!bpMask) bpMask = buildBlueprintMask();
-
-    // DRAW layer defines connectivity
     const img = ctx.getImageData(0, 0, w, h);
     const data = img.data;
-
     const seed = (y0 * w + x0) * 4;
     const sr = data[seed], sg = data[seed+1], sb = data[seed+2];
-
     const [fr, fg, fb] = hexToRgba(hexColor);
-
-    // Already same color at seed? no-op
     if (data[seed+3] === 255 && sr===fr && sg===fg && sb===fb) { isFilling=false; document.body.style.cursor=''; return; }
-
     const visited = new Uint8Array(w * h);
-
     function colorClose(r1,g1,b1,a1, r2,g2,b2,a2, tol){ return Math.abs(r1-r2)<=tol && Math.abs(g1-g2)<=tol && Math.abs(b1-b2)<=tol; }
-    function pixelMatchesDraw(idx){
-      return colorClose(data[idx], data[idx+1], data[idx+2], 255, sr, sg, sb, 255, tolerance);
-    }
-    function targetAt(p, idx){
-      return !visited[p] && bpMask[p] === 0 && pixelMatchesDraw(idx);
-    }
-
+    function pixelMatchesDraw(idx){ return colorClose(data[idx], data[idx+1], data[idx+2], 255, sr, sg, sb, 255, tolerance); }
+    function targetAt(p, idx){ return !visited[p] && bpMask[p] === 0 && pixelMatchesDraw(idx); }
     const stack = [[x0, y0]];
     while (stack.length){
       let [cx, cy] = stack.pop();
-
-      // scan left to start of span
       let p = cy*w + cx, idx = p*4;
       while (cx >= 0 && targetAt(p, idx)) { cx--; p--; idx -= 4; }
       cx++; p++; idx += 4;
-
       let spanUp = false, spanDown = false;
-
-      // fill to the right
       while (cx < w) {
         p = cy*w + cx; idx = p*4;
         if (!targetAt(p, idx)) break;
-
         visited[p] = 1;
         data[idx]   = fr; data[idx+1] = fg; data[idx+2] = fb; data[idx+3] = 255;
-
-        // up
         if (cy > 0){
           const upP = (cy-1)*w + cx, upIdx = upP*4;
           if (targetAt(upP, upIdx)) { if (!spanUp){ stack.push([cx, cy-1]); spanUp = true; } }
           else spanUp = false;
         }
-        // down
         if (cy < h-1){
           const dnP = (cy+1)*w + cx, dnIdx = dnP*4;
           if (targetAt(dnP, dnIdx)) { if (!spanDown){ stack.push([cx, cy+1]); spanDown = true; } }
           else spanDown = false;
         }
-
         cx++;
       }
     }
-
     ctx.putImageData(img, 0, 0);
   } finally {
     isFilling = false;
@@ -696,12 +750,12 @@ document.getElementById('returnMenu').onclick = () => {
 
   history = []; historyStep = -1;
 
-  setStrokeMode('paint'); // reset eraser
+  setStrokeMode('paint');
   fillMode = false; fillBtn.classList.remove('primary'); drawCanvas.style.cursor = 'default';
 
   blueprintImage = null; blueprintVisible = true; invalidateBlueprintMask();
 
-  // NEW: reset zoom/pan
+  // reset zoom/pan
   zoomFactor = 1; panX = 0; panY = 0; zoomSlider.value = 100; zoomVal.textContent = '100%'; applyView();
 
   const toggleBtn = document.getElementById('toggleBp');
