@@ -263,7 +263,11 @@ function resizeCanvases() {
   drawCanvas.width = Math.floor(w * dpr); drawCanvas.height = Math.floor(h * dpr);
   bpCtx.setTransform(dpr,0,0,dpr,0,0); ctx.setTransform(dpr,0,0,dpr,0,0);
   invalidateBlueprintMask();    // mask depends on size/fit
-  clearWatercolorLayer();       // avoid reusing stale blur buffer after resize
+
+  // Guarded calls — Part 2 defines these; if not loaded yet, no-op
+  if (typeof clearWatercolorLayer === 'function') clearWatercolorLayer();
+  if (typeof clearWatercolorBase  === 'function') clearWatercolorBase();
+
   drawBlueprint(); if (historyStep >= 0) restoreState(historyStep);
   applyView(); // keep current zoom/pan after resize
 }
@@ -584,7 +588,6 @@ function fitViewToBlueprint(){
   const rect = stage.getBoundingClientRect();
   const worldW = drawCanvas.width / dpr;
   const worldH = drawCanvas.height / dpr;
-  // Zoom so blueprint fits nicely with small padding
   const pad = 16; // px
   const scaleX = (rect.width - pad*2) / (fit.w / dpr);
   const scaleY = (rect.height - pad*2) / (fit.h / dpr);
@@ -592,7 +595,6 @@ function fitViewToBlueprint(){
   const pct = Math.round(zoomFactor * 100);
   document.getElementById('zoom').value = pct;
   document.getElementById('zoomVal').textContent = pct + '%';
-  // Center world
   panX = (rect.width  - worldW*zoomFactor)/2;
   panY = (rect.height - worldH*zoomFactor)/2;
   applyView();
@@ -602,11 +604,11 @@ function fitViewToBlueprint(){
 function beginDot(p){
   ctx.lineWidth = brushSize; ctx.lineCap = 'round';
   if (strokeMode === 'paint') ctx.strokeStyle = brushColor;
-  else ctx.strokeStyle = 'rgba(0,0,0,1)'; // ignored in destination-out
+  else ctx.strokeStyle = 'rgba(0,0,0,1)';
   ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 0.001, p.y); ctx.stroke();
 }
 
-/* Color utils for advanced paints */
+/* Color utils */
 function hexToRgbArr(hex){
   let h = hex.replace('#',''); if(h.length===3) h = h.split('').map(c=>c+c).join('');
   const n = parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
@@ -639,12 +641,12 @@ function hslToRgb(h,s,l){
   return [Math.round(r*255),Math.round(g*255),Math.round(b*255)];
 }
 
-/* Glitter utilities */
+/* Glitter */
 function glitterColor(baseHex){
   const [r,g,b] = hexToRgbArr(baseHex);
   const [h,s,l] = rgbToHsl(r,g,b);
-  const jitter = (Math.random()*14) - 7; // +/-7 deg hue jitter
-  const hl = Math.min(1, l + 0.15);      // slightly lighter
+  const jitter = (Math.random()*14) - 7;
+  const hl = Math.min(1, l + 0.15);
   const rgb = hslToRgb(h + jitter, s, hl);
   return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.9 + Math.random()*0.1})`;
 }
@@ -677,7 +679,6 @@ function drawNeonSegment(p0, p1, color, coreSize, glowSize){
   ctx.globalCompositeOperation = 'lighter';
   ctx.strokeStyle = color;
   ctx.lineCap = 'round';
-  // Outer glow passes
   ctx.shadowColor = color;
   ctx.shadowBlur  = Math.max(10, glowSize * 0.8);
   ctx.lineWidth   = Math.max(2, coreSize + glowSize);
@@ -685,28 +686,43 @@ function drawNeonSegment(p0, p1, color, coreSize, glowSize){
   ctx.shadowBlur  = Math.max(4, glowSize * 0.4);
   ctx.lineWidth   = Math.max(2, coreSize + glowSize*0.5);
   ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
-  // Core
   ctx.shadowBlur = 0; ctx.lineWidth = coreSize;
   ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
   ctx.restore();
 }
 
-/* Watercolor */
+/* ===== Watercolor (with frozen base to prevent mirroring) ===== */
 const wcLayer = document.createElement('canvas');
 const wcCtx   = wcLayer.getContext('2d');
+// Frozen base snapshot at stroke start
+const wcBaseLayer = document.createElement('canvas');
+const wcBaseCtx   = wcBaseLayer.getContext('2d');
+
 function ensureWcLayer(){
   if (wcLayer.width !== drawCanvas.width || wcLayer.height !== drawCanvas.height){
     wcLayer.width  = drawCanvas.width; wcLayer.height = drawCanvas.height;
   }
 }
-// Clear the offscreen watercolor layer to avoid re-compositing old pixels
+function ensureWcBase(){
+  if (wcBaseLayer.width !== drawCanvas.width || wcBaseLayer.height !== drawCanvas.height){
+    wcBaseLayer.width = drawCanvas.width; wcBaseLayer.height = drawCanvas.height;
+  }
+}
 function clearWatercolorLayer(){
   ensureWcLayer();
   wcCtx.clearRect(0, 0, wcLayer.width, wcLayer.height);
 }
+function clearWatercolorBase(){
+  ensureWcBase();
+  wcBaseCtx.clearRect(0, 0, wcBaseLayer.width, wcBaseLayer.height);
+}
 function wcBeginDot(p, color, size){
   ensureWcLayer();
-  clearWatercolorLayer(); // start every WC stroke on a clean layer
+  ensureWcBase();
+  clearWatercolorLayer();
+  clearWatercolorBase();
+  wcBaseCtx.drawImage(drawCanvas, 0, 0); // snapshot once
+
   wcCtx.globalCompositeOperation = 'source-over';
   wcCtx.strokeStyle = color; wcCtx.lineCap = 'round';
   wcCtx.globalAlpha = 0.18 + wcWet*0.25;
@@ -723,10 +739,11 @@ function drawWatercolorSegment(p0, p1, color, size){
   wcCtx.filter = `blur(${wcBlur}px)`;
   wcCtx.beginPath(); wcCtx.moveTo(p0.x, p0.y); wcCtx.lineTo(p1.x, p1.y); wcCtx.stroke();
   wcCtx.restore();
+
   if (wcWet > 0.4){
     wcCtx.globalCompositeOperation = 'lighter';
     wcCtx.globalAlpha = (wcWet - 0.4) * 0.08;
-    wcCtx.drawImage(drawCanvas, 0, 0);
+    wcCtx.drawImage(wcBaseLayer, 0, 0); // use frozen base (prevents mirroring)
     wcCtx.globalAlpha = 1.0;
   }
   ctx.save(); ctx.globalCompositeOperation = 'source-over'; ctx.drawImage(wcLayer, 0, 0); ctx.restore();
@@ -753,14 +770,13 @@ function drawMetallicSegment(p0, p1, baseHex, size, sheen){
 
 /* ----------------- Drawing (mouse) ----------------- */
 drawCanvas.addEventListener('mousedown', (e) => {
-  if (spaceDown) return; // panning instead of drawing
+  if (spaceDown) return;
   const p = getPosFromEvent(e, drawCanvas);
   if (fillMode){ floodFillAt(p.x, p.y, brushColor, fillTolerance); saveState(); return; }
   drawing = true; lastPoint = p;
   if (strokeMode==='paint' && paintType==='watercolor'){ wcBeginDot(p, brushColor, brushSize); }
   else { beginDot(p); }
 });
-// window-level mouseup to avoid sticky drawing
 window.addEventListener('mouseup', ()  => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mouseleave',()  => { drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mousemove', (e) => {
@@ -771,25 +787,22 @@ drawCanvas.addEventListener('mousemove', (e) => {
   if (strokeMode === 'paint' && paintType === 'watercolor'){
     drawWatercolorSegment(lastPoint, p, brushColor, brushSize);
   } else {
-    // Base stroke (solid or eraser)
     ctx.lineWidth = brushSize; ctx.lineCap = 'round';
     if (strokeMode === 'paint') ctx.strokeStyle = brushColor; else ctx.strokeStyle = 'rgba(0,0,0,1)';
     ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
 
-    // Overlays by paint type
     if (strokeMode === 'paint') {
       if (paintType === 'glitter')      { drawGlitterAlongSegment(lastPoint, p); }
       else if (paintType === 'neon')    { const core = Math.max(1, brushSize*0.7); const glow = Math.max(2, neonWidth); drawNeonSegment(lastPoint, p, brushColor, core, glow); }
       else if (paintType === 'metallic'){ drawMetallicSegment(lastPoint, p, brushColor, brushSize, metalSheen); }
     }
   }
-
   lastPoint = p;
 });
 
 /* ----------------- Drawing (touch) ----------------- */
 drawCanvas.addEventListener('touchstart', (e) => {
-  if (e.touches.length !== 1) return; // 2-finger handled by pinch/pan
+  if (e.touches.length !== 1) return;
   e.preventDefault();
   if (spaceDown) return;
   const p = getPosFromEvent(e, drawCanvas);
@@ -801,7 +814,7 @@ drawCanvas.addEventListener('touchstart', (e) => {
 drawCanvas.addEventListener('touchend', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); }, {passive:false});
 drawCanvas.addEventListener('touchcancel', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); }, {passive:false});
 drawCanvas.addEventListener('touchmove', (e) => {
-  if (e.touches.length !== 1) return; // pinch/pan path
+  if (e.touches.length !== 1) return;
   e.preventDefault(); if (!drawing || fillMode || spaceDown) return;
   const p = getPosFromEvent(e, drawCanvas);
 
@@ -818,7 +831,6 @@ drawCanvas.addEventListener('touchmove', (e) => {
       else if (paintType === 'metallic'){ drawMetallicSegment(lastPoint, p, brushColor, brushSize, metalSheen); }
     }
   }
-
   lastPoint = p;
 }, {passive:false});
 
@@ -831,11 +843,12 @@ document.getElementById('redo').onclick  = () => { if (historyStep < history.len
 document.getElementById('clear').onclick = () => {
   const w = drawCanvas.width / dpr, h = drawCanvas.height / dpr;
   ctx.clearRect(0,0,w,h); ctx.beginPath();
-  clearWatercolorLayer(); // also clear watercolor buffer
+  clearWatercolorLayer();
+  clearWatercolorBase();
   saveState();
 };
 
-/* Save PNG (crisp export using device pixels) */
+/* Save PNG */
 document.getElementById('save').onclick = () => {
   const wDev = drawCanvas.width, hDev = drawCanvas.height;
   const out = document.createElement('canvas'); out.width = wDev; out.height = hDev;
@@ -941,6 +954,7 @@ document.getElementById('returnMenu').onclick = () => {
   const bpW   = bpCanvas.width   / dpr, bpH   = bpCanvas.height   / dpr;
   ctx.clearRect(0,0,drawW,drawH); bpCtx.clearRect(0,0,bpW,bpH); ctx.beginPath();
   clearWatercolorLayer();
+  clearWatercolorBase();
 
   history = []; historyStep = -1;
 
@@ -949,7 +963,6 @@ document.getElementById('returnMenu').onclick = () => {
 
   blueprintImage = null; blueprintVisible = true; invalidateBlueprintMask();
 
-  // reset zoom/pan
   zoomFactor = 1; panX = 0; panY = 0; zoomSlider.value = 100; zoomVal.textContent = '100%'; applyView();
 
   const toggleBtn = document.getElementById('toggleBp');
