@@ -128,7 +128,6 @@
           <option value="metallic">Metallic</option>
         </select>
 
-        <!-- Glitter controls -->
         <div id="glitterControls" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <label for="glitterDensity">Density</label>
           <input id="glitterDensity" type="range" min="0" max="3" step="0.1" value="1.2">
@@ -139,14 +138,12 @@
           <span id="glitterSizeVal">3</span>
         </div>
 
-        <!-- Neon controls -->
         <div id="neonControls" style="display:none;align-items:center;gap:8px;flex-wrap:wrap">
           <label for="neonWidth">Glow</label>
           <input id="neonWidth" type="range" min="4" max="40" value="14">
           <span id="neonWidthVal">14</span>
         </div>
 
-        <!-- Metallic controls -->
         <div id="metalControls" style="display:none;align-items:center;gap:8px;flex-wrap:wrap">
           <label for="metalSheen">Sheen</label>
           <input id="metalSheen" type="range" min="0" max="1" step="0.05" value="0.5">
@@ -308,7 +305,7 @@ clearBpBtn.onclick = ()=>{ blueprintImage = null; invalidateBlueprintMask(); dra
 pickBpBtn.onclick  = ()=> showBlueprintMenu();
 fitBpBtn.onclick   = ()=> fitViewToBlueprint();
 
-/* Fit helpers + mask build (THINNER walls + safer) */
+/* Fit helpers + **MASK BUILD (blur + thin dilation)** */
 function getBlueprintFitDevPx() {
   if (!blueprintImage) return null;
   const cw = drawCanvas.width, ch = drawCanvas.height;
@@ -319,52 +316,55 @@ function getBlueprintFitDevPx() {
   const x = Math.floor((cw - w) / 2), y = Math.floor((ch - h) / 2);
   return { x, y, w, h };
 }
+
 function buildBlueprintMask(){
+  // Build a fill-only wall mask that closes dash gaps but keeps walls thin.
   const w = drawCanvas.width, h = drawCanvas.height;
   const mask = new Uint8Array(w * h);
   const fit = getBlueprintFitDevPx();
   if (!blueprintImage || !fit) return mask;
 
-  const tmp = document.createElement('canvas');
-  tmp.width = w; tmp.height = h;
-  const tctx = tmp.getContext('2d');
+  const t = document.createElement('canvas');
+  t.width = w; t.height = h;
+  const tctx = t.getContext('2d');
+
+  // Slight blur to connect dashed/stippled lines (mask only — not visible layer)
+  const dprLocal = Math.max(1, window.devicePixelRatio || 1);
   tctx.clearRect(0,0,w,h);
+  tctx.filter = `blur(${1.25 * dprLocal}px)`;
   tctx.drawImage(blueprintImage, fit.x, fit.y, fit.w, fit.h);
+  tctx.filter = 'none';
 
   const img = tctx.getImageData(0,0,w,h);
   const d = img.data;
 
-  const ALPHA_MIN = 40;
-  const LUMA_MAX  = 180;
+  const ALPHA_MIN = 24;   // accept lighter alpha because we blurred
+  const LUMA_MAX  = 190;  // darker = line
   for (let p=0, i=0; p<w*h; p++, i+=4){
     const a = d[i+3];
     if (a > ALPHA_MIN){
       const l = 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
-      if (l < LUMA_MAX) mask[p] = 1; // initial thin wall
+      if (l < LUMA_MAX) mask[p] = 1;
     }
   }
 
-  // ---- DPR-aware dilation with SMALL radius (thinner walls) ----
-  const dprLocal = Math.max(1, window.devicePixelRatio || 1);
-  const rad = Math.max(1, Math.round(1 * dprLocal));   // <= changed from 3*dpr to 1*dpr
-  if (rad > 0){
-    const out = new Uint8Array(mask);
-    for (let y=0; y<h; y++){
-      for (let x=0; x<w; x++){
-        const p = y*w + x;
-        if (!mask[p]) continue;
-        for (let dy=-rad; dy<=rad; dy++){
-          const yy = y+dy; if (yy<0||yy>=h) continue;
-          for (let dx=-rad; dx<=rad; dx++){
-            const xx = x+dx; if (xx<0||xx>=w) continue;
-            out[yy*w + xx] = 1;
-          }
+  // Tiny DPR-aware dilation for pinholes; thin to keep walls narrow
+  const rad = Math.max(1, Math.round(2 * dprLocal));
+  const out = new Uint8Array(mask);
+  for (let y=0; y<h; y++){
+    for (let x=0; x<w; x++){
+      const p = y*w + x;
+      if (!mask[p]) continue;
+      for (let dy=-rad; dy<=rad; dy++){
+        const yy = y+dy; if (yy<0||yy>=h) continue;
+        for (let dx=-rad; dx<=rad; dx++){
+          const xx = x+dx; if (xx<0||xx>=w) continue;
+          out[yy*w + xx] = 1;
         }
       }
     }
-    return out;
   }
-  return mask;
+  return out;
 }
 </script>
 
@@ -769,7 +769,7 @@ fillBtn.onclick = () => {
   if (fillMode && strokeMode === 'erase') setStrokeMode('paint');
 };
 
-/* --------- Improved MASK-AWARE Flood Fill (thinner walls + edge-tightening) ---------- */
+/* --------- Improved MASK-AWARE Flood Fill ---------- */
 function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
   if (isFilling) return;
   isFilling = true;
@@ -786,10 +786,10 @@ function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
     const [fr, fg, fb] = hexToRgba(hexColor);
     if (data[seed+3] === 255 && sr===fr && sg===fg && sb===fb) { isFilling=false; document.body.style.cursor=''; return; }
 
-    // helper: nearby mask?
+    // Near-line guard — widened so we tighten tolerance before crossing lines
     const dprLocal = Math.max(1, window.devicePixelRatio || 1);
-    const guard = Math.max(1, Math.round(1 * dprLocal)); // look within ~1*dpr px
-    function nearMask(px){ // px is linear index
+    const guard = Math.max(2, Math.round(2 * dprLocal)); // <— stronger than 1*dpr
+    function nearMask(px){
       const x = px % w, y = (px / w) | 0;
       for (let dy=-guard; dy<=guard; dy++){
         const yy = y+dy; if (yy<0||yy>=h) continue;
