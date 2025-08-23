@@ -27,7 +27,6 @@
   .btn.primary{background:var(--accent);color:#0a0f2e}
 
   .stage{margin-top:14px;background:#111432;border:1px solid #1f2550;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative;min-height:620px}
-  /* Zoom/Pan wrapper */
   .stage-inner{position:relative;width:100%;height:100%;transform-origin:0 0;will-change:transform;touch-action:none;cursor:default}
   .stage-inner.grab{cursor:grab}
   .stage-inner.grabbing{cursor:grabbing}
@@ -112,7 +111,7 @@
         <span id="sizeVal">5 px</span>
       </div>
 
-      <!-- Zoom row (icon only) -->
+      <!-- Zoom row -->
       <div style="display:flex;align-items:center;gap:8px;width:100%;margin-top:6px">
         <img src="images/zoom.png" alt="" style="width:18px;height:18px">
         <input type="range" id="zoom" min="50" max="400" value="100">
@@ -126,7 +125,6 @@
           <option value="solid" selected>Solid</option>
           <option value="glitter">Glitter</option>
           <option value="neon">Neon Glow</option>
-          <option value="watercolor">Watercolor</option>
           <option value="metallic">Metallic</option>
         </select>
 
@@ -146,16 +144,6 @@
           <label for="neonWidth">Glow</label>
           <input id="neonWidth" type="range" min="4" max="40" value="14">
           <span id="neonWidthVal">14</span>
-        </div>
-
-        <!-- Watercolor controls -->
-        <div id="wcControls" style="display:none;align-items:center;gap:8px;flex-wrap:wrap">
-          <label for="wcWet">Wet</label>
-          <input id="wcWet" type="range" min="0" max="1" step="0.05" value="0.6">
-          <span id="wcWetVal">0.6</span>
-          <label for="wcBlur">Blur</label>
-          <input id="wcBlur" type="range" min="0" max="10" step="0.5" value="4">
-          <span id="wcBlurVal">4</span>
         </div>
 
         <!-- Metallic controls -->
@@ -262,18 +250,13 @@ function resizeCanvases() {
   bpCanvas.width = Math.floor(w * dpr); bpCanvas.height = Math.floor(h * dpr);
   drawCanvas.width = Math.floor(w * dpr); drawCanvas.height = Math.floor(h * dpr);
   bpCtx.setTransform(dpr,0,0,dpr,0,0); ctx.setTransform(dpr,0,0,dpr,0,0);
-  invalidateBlueprintMask();    // mask depends on size/fit
-
-  // Guarded calls — Part 2 defines these; if not loaded yet, no-op
-  if (typeof clearWatercolorLayer === 'function') clearWatercolorLayer();
-  if (typeof clearWatercolorBase  === 'function') clearWatercolorBase();
-
+  invalidateBlueprintMask();
   drawBlueprint(); if (historyStep >= 0) restoreState(historyStep);
-  applyView(); // keep current zoom/pan after resize
+  applyView();
 }
 window.addEventListener('resize', resizeCanvases);
 
-/* Pointer mapping (robust under zoom/pan via DOMRect) */
+/* Pointer mapping */
 function getPosFromEvent(e, canvas) {
   const r = canvas.getBoundingClientRect();
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -304,7 +287,7 @@ function setBlueprint(src){
   img.onload = () => { blueprintImage = img; invalidateBlueprintMask(); drawBlueprint(); };
 }
 
-/* Draw blueprint to bp canvas (UI opacity respected) */
+/* Draw blueprint */
 function drawBlueprint(){
   const cssW = bpCanvas.width / dpr, cssH = bpCanvas.height / dpr;
   bpCtx.clearRect(0,0,cssW,cssH);
@@ -318,14 +301,14 @@ function drawBlueprint(){
   bpCtx.drawImage(blueprintImage, x, y, w, h); bpCtx.restore();
 }
 
-/* In-app blueprint controls */
+/* Blueprint controls */
 bpOpacityInput.oninput = (e)=>{ blueprintOpacity = parseInt(e.target.value,10)/100; bpOpacityVal.textContent = `${e.target.value}%`; drawBlueprint(); };
 toggleBpBtn.onclick = ()=>{ blueprintVisible = !blueprintVisible; toggleBpBtn.textContent = blueprintVisible ? 'Hide Blueprint' : 'Show Blueprint'; drawBlueprint(); };
 clearBpBtn.onclick = ()=>{ blueprintImage = null; invalidateBlueprintMask(); drawBlueprint(); };
 pickBpBtn.onclick  = ()=> showBlueprintMenu();
 fitBpBtn.onclick   = ()=> fitViewToBlueprint();
 
-/* Build a binary mask of blueprint lines (threshold + 1px dilation) */
+/* Fit helpers */
 function getBlueprintFitDevPx() {
   if (!blueprintImage) return null;
   const cw = drawCanvas.width, ch = drawCanvas.height;
@@ -351,8 +334,8 @@ function buildBlueprintMask(){
   const img = tctx.getImageData(0,0,w,h);
   const d = img.data;
 
-  const ALPHA_MIN = 40;  // ignore near-transparent pixels
-  const LUMA_MAX  = 180; // treat darker pixels as “line”
+  const ALPHA_MIN = 40;
+  const LUMA_MAX  = 180;
   for (let p=0, i=0; p<w*h; p++, i+=4){
     const a = d[i+3];
     if (a > ALPHA_MIN){
@@ -360,8 +343,6 @@ function buildBlueprintMask(){
       if (l < LUMA_MAX) mask[p] = 1;
     }
   }
-
-  // 1px dilation for sturdier walls
   const out = new Uint8Array(mask);
   for (let y=1; y<h-1; y++){
     let row = y*w;
@@ -378,7 +359,8 @@ function buildBlueprintMask(){
 }
 </script>
 
-<script>
+<!-- ======= APPEND PART 2 SCRIPT RIGHT AFTER THIS LINE ======= -->
+  <script>
 /* ---------- Drawing + Undo/Redo + Fill (mask-aware) + Zoom/Pan + Paint Types ---------- */
 const FILL_TOLERANCE = 40;
 const MAX_HISTORY    = 40;
@@ -412,37 +394,22 @@ const glitterSizeInput = document.getElementById('glitterSize');
 const glitterSizeVal = document.getElementById('glitterSizeVal');
 
 const neonControls = document.getElementById('neonControls');
-const wcControls   = document.getElementById('wcControls');
-const metalControls= document.getElementById('metalControls');
-
-let paintType = paintTypeSel.value; // 'solid' | 'glitter' | 'neon' | 'watercolor' | 'metallic'
-
-// Glitter values
-let glitterDensity = parseFloat(glitterDensityInput.value);
-let glitterSize = parseFloat(glitterSizeInput.value);
-
-// Neon values
 const neonWidthInput = document.getElementById('neonWidth');
 const neonWidthVal   = document.getElementById('neonWidthVal');
 let neonWidth = parseInt(neonWidthInput.value,10);
 
-// Watercolor values
-const wcWetInput  = document.getElementById('wcWet');
-const wcWetVal    = document.getElementById('wcWetVal');
-const wcBlurInput = document.getElementById('wcBlur');
-const wcBlurVal   = document.getElementById('wcBlurVal');
-let wcWet  = parseFloat(wcWetInput.value);
-let wcBlur = parseFloat(wcBlurInput.value);
-
-// Metallic values
+const metalControls= document.getElementById('metalControls');
 const metalSheenInput = document.getElementById('metalSheen');
 const metalSheenVal   = document.getElementById('metalSheenVal');
+
+let paintType = paintTypeSel.value; // 'solid' | 'glitter' | 'neon' | 'metallic'
+let glitterDensity = parseFloat(glitterDensityInput.value);
+let glitterSize = parseFloat(glitterSizeInput.value);
 let metalSheen = parseFloat(metalSheenInput.value);
 
 function updatePaintControls(){
   glitterControls.style.display = (paintType === 'glitter') ? 'flex' : 'none';
   neonControls.style.display    = (paintType === 'neon')    ? 'flex' : 'none';
-  wcControls.style.display      = (paintType === 'watercolor') ? 'flex' : 'none';
   metalControls.style.display   = (paintType === 'metallic') ? 'flex' : 'none';
 }
 paintTypeSel.onchange = () => { paintType = paintTypeSel.value; updatePaintControls(); };
@@ -450,13 +417,8 @@ updatePaintControls();
 
 glitterDensityInput.oninput = (e)=>{ glitterDensity = parseFloat(e.target.value); glitterDensityVal.textContent = glitterDensity.toFixed(1); };
 glitterSizeInput.oninput = (e)=>{ glitterSize = parseFloat(e.target.value); glitterSizeVal.textContent = glitterSize.toString(); };
-
-neonWidthInput.oninput = (e)=>{ neonWidth = parseInt(e.target.value,10); neonWidthVal.textContent = neonWidth; };
-
-wcWetInput.oninput  = (e)=>{ wcWet  = parseFloat(e.target.value); wcWetVal.textContent = wcWet.toFixed(2); };
-wcBlurInput.oninput = (e)=>{ wcBlur = parseFloat(e.target.value); wcBlurVal.textContent = wcBlur.toString(); };
-
-metalSheenInput.oninput = (e)=>{ metalSheen = parseFloat(e.target.value); metalSheenVal.textContent = metalSheen.toFixed(2); };
+neonWidthInput.oninput   = (e)=>{ neonWidth = parseInt(e.target.value,10); neonWidthVal.textContent = neonWidth; };
+metalSheenInput.oninput  = (e)=>{ metalSheen = parseFloat(e.target.value); metalSheenVal.textContent = metalSheen.toFixed(2); };
 
 /* Tolerance slider */
 const tolInput = document.getElementById('tolerance');
@@ -532,16 +494,8 @@ window.addEventListener('mouseup', () => {
   if (panning){ panning = false; applyView(); }
 });
 let gesture = { active:false, startZoom:1, startPanX:0, startPanY:0, startDist:0, worldAtMid:{x:0,y:0} };
-function touchMidpoint(touches){
-  const x = (touches[0].clientX + touches[1].clientX)/2;
-  const y = (touches[0].clientY + touches[1].clientY)/2;
-  return {x,y};
-}
-function touchDistance(touches){
-  const dx = touches[0].clientX - touches[1].clientX;
-  const dy = touches[0].clientY - touches[1].clientY;
-  return Math.hypot(dx,dy);
-}
+function touchMidpoint(touches){ return { x:(touches[0].clientX+touches[1].clientX)/2, y:(touches[0].clientY+touches[1].clientY)/2 }; }
+function touchDistance(touches){ const dx=touches[0].clientX-touches[1].clientX, dy=touches[0].clientY-touches[1].clientY; return Math.hypot(dx,dy); }
 zoomWrap.addEventListener('touchstart', (e) => {
   if (e.touches.length === 2){
     e.preventDefault();
@@ -576,9 +530,7 @@ zoomWrap.addEventListener('touchmove', (e) => {
     applyView();
   }
 }, {passive:false});
-zoomWrap.addEventListener('touchend', (e) => {
-  if (e.touches.length < 2) { gesture.active = false; }
-}, {passive:false});
+zoomWrap.addEventListener('touchend', (e) => { if (e.touches.length < 2) { gesture.active = false; } }, {passive:false});
 zoomWrap.addEventListener('touchcancel', () => { gesture.active = false; }, {passive:false});
 
 /* Fit to blueprint */
@@ -588,7 +540,7 @@ function fitViewToBlueprint(){
   const rect = stage.getBoundingClientRect();
   const worldW = drawCanvas.width / dpr;
   const worldH = drawCanvas.height / dpr;
-  const pad = 16; // px
+  const pad = 16;
   const scaleX = (rect.width - pad*2) / (fit.w / dpr);
   const scaleY = (rect.height - pad*2) / (fit.h / dpr);
   zoomFactor = clamp(Math.min(scaleX, scaleY), 0.5, 4.0);
@@ -691,64 +643,6 @@ function drawNeonSegment(p0, p1, color, coreSize, glowSize){
   ctx.restore();
 }
 
-/* ===== Watercolor (with frozen base to prevent mirroring) ===== */
-const wcLayer = document.createElement('canvas');
-const wcCtx   = wcLayer.getContext('2d');
-// Frozen base snapshot at stroke start
-const wcBaseLayer = document.createElement('canvas');
-const wcBaseCtx   = wcBaseLayer.getContext('2d');
-
-function ensureWcLayer(){
-  if (wcLayer.width !== drawCanvas.width || wcLayer.height !== drawCanvas.height){
-    wcLayer.width  = drawCanvas.width; wcLayer.height = drawCanvas.height;
-  }
-}
-function ensureWcBase(){
-  if (wcBaseLayer.width !== drawCanvas.width || wcBaseLayer.height !== drawCanvas.height){
-    wcBaseLayer.width = drawCanvas.width; wcBaseLayer.height = drawCanvas.height;
-  }
-}
-function clearWatercolorLayer(){
-  ensureWcLayer();
-  wcCtx.clearRect(0, 0, wcLayer.width, wcLayer.height);
-}
-function clearWatercolorBase(){
-  ensureWcBase();
-  wcBaseCtx.clearRect(0, 0, wcBaseLayer.width, wcBaseLayer.height);
-}
-function wcBeginDot(p, color, size){
-  ensureWcLayer();
-  ensureWcBase();
-  clearWatercolorLayer();
-  clearWatercolorBase();
-  wcBaseCtx.drawImage(drawCanvas, 0, 0); // snapshot once
-
-  wcCtx.globalCompositeOperation = 'source-over';
-  wcCtx.strokeStyle = color; wcCtx.lineCap = 'round';
-  wcCtx.globalAlpha = 0.18 + wcWet*0.25;
-  wcCtx.lineWidth = size * (1.1 + wcWet*0.4);
-  wcCtx.beginPath(); wcCtx.moveTo(p.x, p.y); wcCtx.lineTo(p.x+0.001, p.y); wcCtx.stroke();
-}
-function drawWatercolorSegment(p0, p1, color, size){
-  ensureWcLayer();
-  wcCtx.save();
-  wcCtx.globalCompositeOperation = 'source-over';
-  wcCtx.strokeStyle = color; wcCtx.lineCap = 'round';
-  wcCtx.globalAlpha = 0.16 + wcWet*0.22;
-  wcCtx.lineWidth = size * (1.1 + wcWet*0.4);
-  wcCtx.filter = `blur(${wcBlur}px)`;
-  wcCtx.beginPath(); wcCtx.moveTo(p0.x, p0.y); wcCtx.lineTo(p1.x, p1.y); wcCtx.stroke();
-  wcCtx.restore();
-
-  if (wcWet > 0.4){
-    wcCtx.globalCompositeOperation = 'lighter';
-    wcCtx.globalAlpha = (wcWet - 0.4) * 0.08;
-    wcCtx.drawImage(wcBaseLayer, 0, 0); // use frozen base (prevents mirroring)
-    wcCtx.globalAlpha = 1.0;
-  }
-  ctx.save(); ctx.globalCompositeOperation = 'source-over'; ctx.drawImage(wcLayer, 0, 0); ctx.restore();
-}
-
 /* Metallic */
 function lerp(a,b,t){ return a + (b-a)*t; }
 function drawMetallicSegment(p0, p1, baseHex, size, sheen){
@@ -774,8 +668,7 @@ drawCanvas.addEventListener('mousedown', (e) => {
   const p = getPosFromEvent(e, drawCanvas);
   if (fillMode){ floodFillAt(p.x, p.y, brushColor, fillTolerance); saveState(); return; }
   drawing = true; lastPoint = p;
-  if (strokeMode==='paint' && paintType==='watercolor'){ wcBeginDot(p, brushColor, brushSize); }
-  else { beginDot(p); }
+  beginDot(p);
 });
 window.addEventListener('mouseup', ()  => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
 drawCanvas.addEventListener('mouseleave',()  => { drawing = false; lastPoint = null; ctx.beginPath(); });
@@ -784,19 +677,18 @@ drawCanvas.addEventListener('mousemove', (e) => {
   if (!drawing || fillMode) return;
   const p = getPosFromEvent(e, drawCanvas);
 
-  if (strokeMode === 'paint' && paintType === 'watercolor'){
-    drawWatercolorSegment(lastPoint, p, brushColor, brushSize);
-  } else {
-    ctx.lineWidth = brushSize; ctx.lineCap = 'round';
-    if (strokeMode === 'paint') ctx.strokeStyle = brushColor; else ctx.strokeStyle = 'rgba(0,0,0,1)';
-    ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+  // Base stroke (solid or eraser)
+  ctx.lineWidth = brushSize; ctx.lineCap = 'round';
+  if (strokeMode === 'paint') ctx.strokeStyle = brushColor; else ctx.strokeStyle = 'rgba(0,0,0,1)';
+  ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
 
-    if (strokeMode === 'paint') {
-      if (paintType === 'glitter')      { drawGlitterAlongSegment(lastPoint, p); }
-      else if (paintType === 'neon')    { const core = Math.max(1, brushSize*0.7); const glow = Math.max(2, neonWidth); drawNeonSegment(lastPoint, p, brushColor, core, glow); }
-      else if (paintType === 'metallic'){ drawMetallicSegment(lastPoint, p, brushColor, brushSize, metalSheen); }
-    }
+  // Overlays by paint type
+  if (strokeMode === 'paint') {
+    if (paintType === 'glitter')      { drawGlitterAlongSegment(lastPoint, p); }
+    else if (paintType === 'neon')    { const core = Math.max(1, brushSize*0.7); const glow = Math.max(2, neonWidth); drawNeonSegment(lastPoint, p, brushColor, core, glow); }
+    else if (paintType === 'metallic'){ drawMetallicSegment(lastPoint, p, brushColor, brushSize, metalSheen); }
   }
+
   lastPoint = p;
 });
 
@@ -808,8 +700,7 @@ drawCanvas.addEventListener('touchstart', (e) => {
   const p = getPosFromEvent(e, drawCanvas);
   if (fillMode){ floodFillAt(p.x, p.y, brushColor, fillTolerance); saveState(); return; }
   drawing = true; lastPoint = p;
-  if (strokeMode==='paint' && paintType==='watercolor'){ wcBeginDot(p, brushColor, brushSize); }
-  else { beginDot(p); }
+  beginDot(p);
 }, {passive:false});
 drawCanvas.addEventListener('touchend', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); }, {passive:false});
 drawCanvas.addEventListener('touchcancel', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); }, {passive:false});
@@ -818,19 +709,16 @@ drawCanvas.addEventListener('touchmove', (e) => {
   e.preventDefault(); if (!drawing || fillMode || spaceDown) return;
   const p = getPosFromEvent(e, drawCanvas);
 
-  if (strokeMode === 'paint' && paintType === 'watercolor'){
-    drawWatercolorSegment(lastPoint, p, brushColor, brushSize);
-  } else {
-    ctx.lineWidth = brushSize; ctx.lineCap = 'round';
-    if (strokeMode === 'paint') ctx.strokeStyle = brushColor; else ctx.strokeStyle = 'rgba(0,0,0,1)';
-    ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+  ctx.lineWidth = brushSize; ctx.lineCap = 'round';
+  if (strokeMode === 'paint') ctx.strokeStyle = brushColor; else ctx.strokeStyle = 'rgba(0,0,0,1)';
+  ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
 
-    if (strokeMode === 'paint') {
-      if (paintType === 'glitter')      { drawGlitterAlongSegment(lastPoint, p); }
-      else if (paintType === 'neon')    { const core = Math.max(1, brushSize*0.7); const glow = Math.max(2, neonWidth); drawNeonSegment(lastPoint, p, brushColor, core, glow); }
-      else if (paintType === 'metallic'){ drawMetallicSegment(lastPoint, p, brushColor, brushSize, metalSheen); }
-    }
+  if (strokeMode === 'paint') {
+    if (paintType === 'glitter')      { drawGlitterAlongSegment(lastPoint, p); }
+    else if (paintType === 'neon')    { const core = Math.max(1, brushSize*0.7); const glow = Math.max(2, neonWidth); drawNeonSegment(lastPoint, p, brushColor, core, glow); }
+    else if (paintType === 'metallic'){ drawMetallicSegment(lastPoint, p, brushColor, brushSize, metalSheen); }
   }
+
   lastPoint = p;
 }, {passive:false});
 
@@ -843,8 +731,6 @@ document.getElementById('redo').onclick  = () => { if (historyStep < history.len
 document.getElementById('clear').onclick = () => {
   const w = drawCanvas.width / dpr, h = drawCanvas.height / dpr;
   ctx.clearRect(0,0,w,h); ctx.beginPath();
-  clearWatercolorLayer();
-  clearWatercolorBase();
   saveState();
 };
 
@@ -953,8 +839,6 @@ document.getElementById('returnMenu').onclick = () => {
   const drawW = drawCanvas.width / dpr, drawH = drawCanvas.height / dpr;
   const bpW   = bpCanvas.width   / dpr, bpH   = bpCanvas.height   / dpr;
   ctx.clearRect(0,0,drawW,drawH); bpCtx.clearRect(0,0,bpW,bpH); ctx.beginPath();
-  clearWatercolorLayer();
-  clearWatercolorBase();
 
   history = []; historyStep = -1;
 
@@ -993,7 +877,6 @@ applyView(); // initial zoom/pan
     console.assert(typeof getPosFromEvent==='function','getPosFromEvent exists');
     console.assert(typeof floodFillAt==='function','floodFillAt exists');
     console.assert(typeof drawNeonSegment==='function','neon exists');
-    console.assert(typeof drawWatercolorSegment==='function','watercolor exists');
     console.assert(typeof drawMetallicSegment==='function','metallic exists');
     console.assert(document.getElementById('paintType'), 'paintType select exists');
     console.groupEnd();
@@ -1002,3 +885,4 @@ applyView(); // initial zoom/pan
 </script>
 </body>
 </html>
+
