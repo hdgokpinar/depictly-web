@@ -694,11 +694,17 @@ function drawNeonSegment(p0, p1, color, coreSize, glowSize){
 const wcLayer = document.createElement('canvas');
 const wcCtx   = wcLayer.getContext('2d');
 function ensureWcLayer(){
+function clearWatercolorLayer(){
+  ensureWcLayer();
+  wcCtx.clearRect(0, 0, wcLayer.width, wcLayer.height);
+}
+
   if (wcLayer.width !== drawCanvas.width || wcLayer.height !== drawCanvas.height){
     wcLayer.width  = drawCanvas.width; wcLayer.height = drawCanvas.height;
   }
 }
 function wcBeginDot(p, color, size){
+  clearWatercolorLayer(); // clear before starting new stroke
   ensureWcLayer();
   wcCtx.globalCompositeOperation = 'source-over';
   wcCtx.strokeStyle = color; wcCtx.lineCap = 'round';
