@@ -202,7 +202,7 @@ function backToMenu(){
 </script>
 
 <script>
-/* ---------- Blueprint layer & picker ---------- */
+/* ---------- Blueprint layer & picker + ROBUST MASK ---------- */
 const BLUEPRINTS = [
   { name: "Dress (Basic)",  src: "blueprints/dress-basic.png" },
   { name: "Dress (Fancy)",  src: "blueprints/dress-fancy.png" },
@@ -248,10 +248,14 @@ function resizeCanvases() {
   drawCanvas.width = Math.floor(w * dpr); drawCanvas.height = Math.floor(h * dpr);
   bpCtx.setTransform(dpr,0,0,dpr,0,0); ctx.setTransform(dpr,0,0,dpr,0,0);
   invalidateBlueprintMask();
-  drawBlueprint(); if (historyStep >= 0) restoreState(historyStep);
+  drawBlueprint();
+  if (typeof historyStep !== 'undefined' && historyStep >= 0) restoreState(historyStep);
   applyView();
 }
-window.addEventListener('resize', resizeCanvases);
+const debounced = (fn, ms=120) => { let id; return (...a)=>{ clearTimeout(id); id=setTimeout(()=>fn(...a), ms); }; };
+window.addEventListener('resize', debounced(() => {
+  resizeCanvases();
+}, 120));
 
 /* Pointer mapping */
 function getPosFromEvent(e, canvas) {
@@ -280,7 +284,7 @@ function startWithBlueprint(src){
   resizeCanvases(); setBlueprint(src); saveState();
 }
 function setBlueprint(src){
-  const img = new Image(); img.src = src;
+  const img = new Image(); img.crossOrigin = 'anonymous'; img.src = src;
   img.onload = () => { blueprintImage = img; invalidateBlueprintMask(); drawBlueprint(); };
 }
 
@@ -298,14 +302,14 @@ function drawBlueprint(){
   bpCtx.drawImage(blueprintImage, x, y, w, h); bpCtx.restore();
 }
 
-/* Blueprint controls */
-bpOpacityInput.oninput = (e)=>{ blueprintOpacity = parseInt(e.target.value,10)/100; bpOpacityVal.textContent = `${e.target.value}%`; drawBlueprint(); };
-toggleBpBtn.onclick = ()=>{ blueprintVisible = !blueprintVisible; toggleBpBtn.textContent = blueprintVisible ? 'Hide Blueprint' : 'Show Blueprint'; drawBlueprint(); };
+/* Blueprint controls — also invalidate mask on changes */
+bpOpacityInput.oninput = (e)=>{ blueprintOpacity = parseInt(e.target.value,10)/100; bpOpacityVal.textContent = `${e.target.value}%`; invalidateBlueprintMask(); drawBlueprint(); };
+toggleBpBtn.onclick = ()=>{ blueprintVisible = !blueprintVisible; toggleBpBtn.textContent = blueprintVisible ? 'Hide Blueprint' : 'Show Blueprint'; invalidateBlueprintMask(); drawBlueprint(); };
 clearBpBtn.onclick = ()=>{ blueprintImage = null; invalidateBlueprintMask(); drawBlueprint(); };
 pickBpBtn.onclick  = ()=> showBlueprintMenu();
 fitBpBtn.onclick   = ()=> fitViewToBlueprint();
 
-/* Fit helpers + **MASK BUILD (blur + thin dilation)** */
+/* Fit helpers */
 function getBlueprintFitDevPx() {
   if (!blueprintImage) return null;
   const cw = drawCanvas.width, ch = drawCanvas.height;
@@ -317,59 +321,103 @@ function getBlueprintFitDevPx() {
   return { x, y, w, h };
 }
 
-function buildBlueprintMask(){
-  // Build a fill-only wall mask that closes dash gaps but keeps walls thin.
-  const w = drawCanvas.width, h = drawCanvas.height;
-  const mask = new Uint8Array(w * h);
-  const fit = getBlueprintFitDevPx();
-  if (!blueprintImage || !fit) return mask;
+/* ---------- ROBUST MASK BUILD (with fallback + borders as walls) ---------- */
+let maskCanvas=null, maskCtx=null;
 
-  const t = document.createElement('canvas');
-  t.width = w; t.height = h;
-  const tctx = t.getContext('2d');
+function maskHasWalls(mask){
+  let count = 0, limit = Math.max(1500, Math.floor(mask.length*0.001)); // ~0.1%
+  for (let i=0; i<mask.length; i++){ if (mask[i]){ count++; if (count>limit) return true; } }
+  return false;
+}
 
-  // Slight blur to connect dashed/stippled lines (mask only — not visible layer)
-  const dprLocal = Math.max(1, window.devicePixelRatio || 1);
-  tctx.clearRect(0,0,w,h);
-  tctx.filter = `blur(${1.25 * dprLocal}px)`;
-  tctx.drawImage(blueprintImage, fit.x, fit.y, fit.w, fit.h);
-  tctx.filter = 'none';
-
-  const img = tctx.getImageData(0,0,w,h);
-  const d = img.data;
-
-  const ALPHA_MIN = 24;   // accept lighter alpha because we blurred
-  const LUMA_MAX  = 190;  // darker = line
-  for (let p=0, i=0; p<w*h; p++, i+=4){
-    const a = d[i+3];
+function buildMaskFromVisibleCanvas(){
+  const w = bpCanvas.width, h = bpCanvas.height;
+  const data = bpCtx.getImageData(0,0,w,h).data;
+  const mask = new Uint8Array(w*h);
+  const ALPHA_MIN = 16, LUMA_MAX = 210;
+  for (let p=0,i=0; p<w*h; p++, i+=4){
+    const a = data[i+3];
     if (a > ALPHA_MIN){
-      const l = 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
+      const l = 0.2126*data[i] + 0.7152*data[i+1] + 0.0722*data[i+2];
       if (l < LUMA_MAX) mask[p] = 1;
     }
   }
-
-  // Tiny DPR-aware dilation for pinholes; thin to keep walls narrow
-  const rad = Math.max(1, Math.round(2 * dprLocal));
+  // small dilation
   const out = new Uint8Array(mask);
+  const rad = Math.max(2, Math.round(2*(window.devicePixelRatio||1)));
   for (let y=0; y<h; y++){
     for (let x=0; x<w; x++){
-      const p = y*w + x;
-      if (!mask[p]) continue;
+      if (!mask[y*w+x]) continue;
       for (let dy=-rad; dy<=rad; dy++){
-        const yy = y+dy; if (yy<0||yy>=h) continue;
+        const yy=y+dy; if (yy<0||yy>=h) continue;
         for (let dx=-rad; dx<=rad; dx++){
-          const xx = x+dx; if (xx<0||xx>=w) continue;
-          out[yy*w + xx] = 1;
+          const xx=x+dx; if (xx<0||xx>=w) continue;
+          out[yy*w+xx] = 1;
         }
       }
     }
   }
+  // borders as walls
+  for (let x=0; x<w; x++){ out[x]=1; out[(h-1)*w + x]=1; }
+  for (let y=0; y<h; y++){ out[y*w]=1; out[y*w + (w-1)]=1; }
   return out;
 }
-</script>
 
-  <script>
-/* ---------- Drawing + Undo/Redo + Fill (mask-aware) + Zoom/Pan + Paint Types (no watercolor) ---------- */
+function buildBlueprintMask(){
+  const w = drawCanvas.width, h = drawCanvas.height;
+  const empty = new Uint8Array(w*h);
+  const fit = getBlueprintFitDevPx();
+  if (!blueprintImage || !fit) return empty;
+
+  try {
+    if (!maskCanvas){ maskCanvas = document.createElement('canvas'); maskCtx = maskCanvas.getContext('2d'); }
+    maskCanvas.width = w; maskCanvas.height = h;
+
+    const dprLocal = Math.max(1, window.devicePixelRatio||1);
+    maskCtx.clearRect(0,0,w,h);
+    maskCtx.filter = `blur(${2.0 * dprLocal}px)`; // stronger blur to close gaps
+    maskCtx.drawImage(blueprintImage, fit.x, fit.y, fit.w, fit.h);
+    maskCtx.filter = 'none';
+
+    const img = maskCtx.getImageData(0,0,w,h).data;
+    const mask = new Uint8Array(w*h);
+    const ALPHA_MIN = 16, LUMA_MAX = 210;
+    for (let p=0,i=0; p<w*h; p++, i+=4){
+      const a = img[i+3];
+      if (a > ALPHA_MIN){
+        const l = 0.2126*img[i] + 0.7152*img[i+1] + 0.0722*img[i+2];
+        if (l < LUMA_MAX) mask[p] = 1;
+      }
+    }
+    // light dilation (thicken lines)
+    const rad = Math.max(2, Math.round(3 * dprLocal));
+    const out = new Uint8Array(mask);
+    for (let y=0; y<h; y++){
+      for (let x=0; x<w; x++){
+        if (!mask[y*w+x]) continue;
+        for (let dy=-rad; dy<=rad; dy++){
+          const yy=y+dy; if (yy<0||yy>=h) continue;
+          for (let dx=-rad; dx<=rad; dx++){
+            const xx=x+dx; if (xx<0||xx>=w) continue;
+            out[yy*w+xx] = 1;
+          }
+        }
+      }
+    }
+    // borders as walls
+    for (let x=0; x<w; x++){ out[x]=1; out[(h-1)*w + x]=1; }
+    for (let y=0; y<h; y++){ out[y*w]=1; out[y*w + (w-1)]=1; }
+
+    if (!maskHasWalls(out)) return buildMaskFromVisibleCanvas();
+    return out;
+  } catch(err){
+    console.warn('Mask-from-image failed, using visible canvas:', err);
+    return buildMaskFromVisibleCanvas();
+  }
+}
+</script>
+<script>
+/* ---------- Drawing + Undo/Redo + Fill (mask-aware) + Zoom/Pan + Paint Types ---------- */
 const FILL_TOLERANCE = 40;
 const MAX_HISTORY    = 40;
 
@@ -541,22 +589,23 @@ zoomWrap.addEventListener('touchmove', (e) => {
 zoomWrap.addEventListener('touchend', (e) => { if (e.touches.length < 2) { gesture.active = false; } }, {passive:false});
 zoomWrap.addEventListener('touchcancel', () => { gesture.active = false; }, {passive:false});
 
-/* Fit to blueprint */
+/* Fit to blueprint — center by fit-rect */
 function fitViewToBlueprint(){
   const fit = getBlueprintFitDevPx();
   if (!fit) return;
   const rect = stage.getBoundingClientRect();
-  const worldW = drawCanvas.width / dpr;
-  const worldH = drawCanvas.height / dpr;
   const pad = 16;
-  const scaleX = (rect.width - pad*2) / (fit.w / dpr);
+  const scaleX = (rect.width  - pad*2) / (fit.w / dpr);
   const scaleY = (rect.height - pad*2) / (fit.h / dpr);
   zoomFactor = clamp(Math.min(scaleX, scaleY), 0.5, 4.0);
   const pct = Math.round(zoomFactor * 100);
   document.getElementById('zoom').value = pct;
   document.getElementById('zoomVal').textContent = pct + '%';
-  panX = (rect.width  - worldW*zoomFactor)/2;
-  panY = (rect.height - worldH*zoomFactor)/2;
+  const screenCX = rect.width / 2, screenCY = rect.height / 2;
+  const fitCX = (fit.x / dpr) + (fit.w / dpr)/2;
+  const fitCY = (fit.y / dpr) + (fit.h / dpr)/2;
+  panX = screenCX - fitCX * zoomFactor;
+  panY = screenCY - fitCY * zoomFactor;
   applyView();
 }
 
@@ -777,7 +826,10 @@ function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
   try {
     const x0 = Math.floor(xCss * dpr), y0 = Math.floor(yCss * dpr);
     const w = drawCanvas.width, h = drawCanvas.height;
+
     if (!bpMask) bpMask = buildBlueprintMask();
+    if (!maskHasWalls(bpMask)) bpMask = buildMaskFromVisibleCanvas(); // final fallback
+
     const img = ctx.getImageData(0, 0, w, h);
     const data = img.data;
     const seed = (y0 * w + x0) * 4;
@@ -786,16 +838,28 @@ function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
     const [fr, fg, fb] = hexToRgba(hexColor);
     if (data[seed+3] === 255 && sr===fr && sg===fg && sb===fb) { isFilling=false; document.body.style.cursor=''; return; }
 
-    // Near-line guard — widened so we tighten tolerance before crossing lines
+    // Near-line guard — stronger & dpr-aware
     const dprLocal = Math.max(1, window.devicePixelRatio || 1);
-    const guard = Math.max(2, Math.round(2 * dprLocal)); // <— stronger than 1*dpr
+    const guard = Math.max(3, Math.round(3 * dprLocal)); // tighter near walls
+
     function nearMask(px){
       const x = px % w, y = (px / w) | 0;
-      for (let dy=-guard; dy<=guard; dy++){
-        const yy = y+dy; if (yy<0||yy>=h) continue;
-        for (let dx=-guard; dx<=guard; dx++){
-          const xx = x+dx; if (xx<0||xx>=w) continue;
-          if (bpMask[yy*w + xx]) return true;
+      const r = guard;
+      // sample perimeter ring instead of full square
+      for (let dx=-r; dx<=r; dx++){
+        const xx = x+dx;
+        if (xx>=0 && xx<w){
+          const y1=y-r, y2=y+r;
+          if (y1>=0 && bpMask[y1*w+xx]) return true;
+          if (y2<h  && bpMask[y2*w+xx]) return true;
+        }
+      }
+      for (let dy=-r+1; dy<=r-1; dy++){
+        const yy=y+dy;
+        if (yy>=0 && yy<h){
+          const x1=x-r, x2=x+r;
+          if (x1>=0 && bpMask[yy*w+x1]) return true;
+          if (x2<w  && bpMask[yy*w+x2]) return true;
         }
       }
       return false;
@@ -803,8 +867,8 @@ function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
 
     function colorClose(r1,g1,b1, r2,g2,b2, tol){ return Math.abs(r1-r2)<=tol && Math.abs(g1-g2)<=tol && Math.abs(b1-b2)<=tol; }
     const visited = new Uint8Array(w * h);
-
     const stack = [[x0, y0]];
+
     while (stack.length){
       let [cx, cy] = stack.pop();
       let p = cy*w + cx, idx = p*4;
@@ -862,13 +926,18 @@ function hexToRgba(hex){
   return [(n>>16)&255,(n>>8)&255,n&255,255];
 }
 
-/* Shortcuts */
+/* Keyboard shortcuts — ignore when typing */
 document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  const isForm = t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  if (isForm) return;
+
   const k = e.key.toLowerCase();
   if ((e.ctrlKey||e.metaKey) && !e.shiftKey && k==='z'){ document.getElementById('undo').click(); e.preventDefault(); }
   if ((e.ctrlKey||e.metaKey) && ((e.shiftKey && k==='z') || k==='y')){ document.getElementById('redo').click(); e.preventDefault(); }
   if (!e.ctrlKey && !e.metaKey && k==='e'){ setStrokeMode(strokeMode==='erase' ? 'paint' : 'erase'); }
   if (!e.ctrlKey && !e.metaKey && k==='f'){ fillBtn.click(); }
+  if ((e.ctrlKey||e.metaKey) && k==='s'){ document.getElementById('save').click(); e.preventDefault(); }
 });
 
 /* Return to Main Menu — full reset */
