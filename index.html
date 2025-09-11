@@ -31,11 +31,16 @@
   .stage-inner.grab{cursor:grab}
   .stage-inner.grabbing{cursor:grabbing}
   .stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;image-rendering:crisp-edges;display:block}
-  #bp{z-index:0}
-  #draw{z-index:1}
+
+  /* Stacking order: mannequin -> blueprint -> drawing */
+  #fig{z-index:0}
+  #bp{z-index:1}
+  #draw{z-index:2}
 
   /* Blueprint picker */
   #blueprintMenu{display:none;min-height:100vh;text-align:center;padding:24px}
+  /* Mannequin picker shares same grid style */
+  #mannequinMenu{display:none;min-height:100vh;text-align:center;padding:24px}
   .bp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:18px;max-width:1000px;margin:22px auto}
   .bp-card{background:#111739;border:1px solid #222a61;border-radius:12px;padding:10px;cursor:pointer;transition:.15s}
   .bp-card:hover{filter:brightness(1.12);transform:translateY(-1px)}
@@ -64,6 +69,7 @@
   <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
     <button class="menu-btn" onclick="showApp()">Start Drawing</button>
     <button class="menu-btn" style="background:#2f86ff;color:#071333" onclick="showBlueprintMenu()">Start with a Blueprint</button>
+    <button class="menu-btn" style="background:#6fb7ff;color:#071333" onclick="showFigureMenu()">Start with a Mannequin</button>
     <button class="menu-btn" style="background:#8aa3ff;color:#071333" onclick="showAbout()">About</button>
   </div>
 </section>
@@ -72,6 +78,13 @@
 <section id="blueprintMenu">
   <h2>Select a Blueprint</h2>
   <div class="bp-grid" id="blueprintList"></div>
+  <button class="menu-btn" style="margin-top:14px" onclick="backToMenu()">Back</button>
+</section>
+
+<!-- Mannequin Selection Screen -->
+<section id="mannequinMenu">
+  <h2>Select a Mannequin</h2>
+  <div class="bp-grid" id="figureList"></div>
   <button class="menu-btn" style="margin-top:14px" onclick="backToMenu()">Back</button>
 </section>
 
@@ -89,6 +102,21 @@
       <label for="bpOpacity">Opacity</label>
       <input id="bpOpacity" type="range" min="0" max="100" value="30" />
       <span id="bpOpacityVal">30%</span>
+    </div>
+
+    <!-- Mannequin controls -->
+    <div class="seg">
+      <button id="pickFigure" class="btn">Pick Mannequin</button>
+      <button id="toggleFigure" class="btn">Hide Mannequin</button>
+      <button id="clearFigure" class="btn">Clear</button>
+      <button id="fitFigure" class="btn" title="Fit view to mannequin">Fit</button>
+      <label for="figOpacity">Opacity</label>
+      <input id="figOpacity" type="range" min="0" max="100" value="85" />
+      <span id="figOpacityVal">85%</span>
+      <label style="display:flex;align-items:center;gap:6px;margin-left:8px">
+        <input id="figWalls" type="checkbox" />
+        Treat as walls
+      </label>
     </div>
 
     <!-- Color + Fill -->
@@ -161,6 +189,7 @@
 
   <div class="stage" id="stage">
     <div class="stage-inner" id="zoomWrap">
+      <canvas id="fig"></canvas>
       <canvas id="bp"></canvas>
       <canvas id="draw"></canvas>
     </div>
@@ -177,6 +206,7 @@
 function showApp(){
   document.getElementById('menu').style.display='none';
   document.getElementById('blueprintMenu').style.display='none';
+  document.getElementById('mannequinMenu').style.display='none';
   document.getElementById('appWrap').style.display='block';
   resizeCanvases();
   saveState();
@@ -192,17 +222,26 @@ function closeOverlay(){ document.getElementById('overlay').style.display='none'
 function showBlueprintMenu(){
   document.getElementById('menu').style.display='none';
   document.getElementById('appWrap').style.display='none';
+  document.getElementById('mannequinMenu').style.display='none';
   document.getElementById('blueprintMenu').style.display='block';
   renderBlueprintList();
 }
+function showFigureMenu(){
+  document.getElementById('menu').style.display='none';
+  document.getElementById('appWrap').style.display='none';
+  document.getElementById('blueprintMenu').style.display='none';
+  document.getElementById('mannequinMenu').style.display='block';
+  renderFigureList();
+}
 function backToMenu(){
+  document.getElementById('mannequinMenu').style.display='none';
   document.getElementById('blueprintMenu').style.display='none';
   document.getElementById('menu').style.display='flex';
 }
 </script>
 
 <script>
-/* ---------- Blueprint layer & picker + ROBUST MASK ---------- */
+/* ---------- Blueprint layer & picker ---------- */
 const BLUEPRINTS = [
   { name: "Dress (Basic)",  src: "blueprints/dress-basic.png" },
   { name: "Dress (Fancy)",  src: "blueprints/dress-fancy.png" },
@@ -211,6 +250,15 @@ const BLUEPRINTS = [
   { name: "T-Shirt",        src: "blueprints/tshirt.png" },
   { name: "Sneaker",        src: "blueprints/sneaker.png" }
 ];
+
+/* ---------- Mannequin catalog ---------- */
+const MANNEQUINS = [
+  { name: "Feminine (Front+Back)",  src: "mannequins/feminine_front_back.png" },
+  { name: "Masculine (Front+Back)", src: "mannequins/masculine_front_back.png" },
+];
+
+const figCanvas = document.getElementById('fig');
+const figCtx    = figCanvas.getContext('2d');
 
 const bpCanvas = document.getElementById('bp');
 const bpCtx    = bpCanvas.getContext('2d');
@@ -224,6 +272,15 @@ const clearBpBtn     = document.getElementById('clearBp');
 const pickBpBtn      = document.getElementById('pickBlueprint');
 const fitBpBtn       = document.getElementById('fitBp');
 
+/* Mannequin controls */
+const figOpacityInput = document.getElementById('figOpacity');
+const figOpacityVal   = document.getElementById('figOpacityVal');
+const toggleFigBtn    = document.getElementById('toggleFigure');
+const clearFigBtn     = document.getElementById('clearFigure');
+const pickFigBtn      = document.getElementById('pickFigure');
+const fitFigBtn       = document.getElementById('fitFigure');
+const figWallsChk     = document.getElementById('figWalls');
+
 const stage    = document.getElementById('stage');
 const zoomWrap = document.getElementById('zoomWrap');
 
@@ -231,9 +288,15 @@ let blueprintImage = null;
 let blueprintVisible = true;
 let blueprintOpacity = parseInt(bpOpacityInput.value, 10) / 100;
 
-/* MASK for crisp fill boundaries */
-let bpMask = null; // Uint8Array; 1 = wall, 0 = empty
+let figureImage = null;
+let figureVisible = true;
+let figureOpacity = parseInt(figOpacityInput.value,10)/100;
+
+/* MASKS */
+let bpMask = null; // existing
+let figMask = null; // mannequin
 function invalidateBlueprintMask(){ bpMask = null; }
+function invalidateFigureMask(){ figMask = null; }
 
 /* DPR / resize */
 let dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -243,19 +306,23 @@ function fitSizePx() {
 }
 function resizeCanvases() {
   const { w, h } = fitSizePx();
-  [bpCanvas, drawCanvas].forEach(c => { c.style.width = w + 'px'; c.style.height = h + 'px'; });
-  bpCanvas.width = Math.floor(w * dpr); bpCanvas.height = Math.floor(h * dpr);
-  drawCanvas.width = Math.floor(w * dpr); drawCanvas.height = Math.floor(h * dpr);
-  bpCtx.setTransform(dpr,0,0,dpr,0,0); ctx.setTransform(dpr,0,0,dpr,0,0);
+
+  [figCanvas, bpCanvas, drawCanvas].forEach(c => { c.style.width = w + 'px'; c.style.height = h + 'px'; });
+  figCanvas.width = Math.floor(w * dpr); figCanvas.height = Math.floor(h * dpr);
+  bpCanvas.width  = Math.floor(w * dpr); bpCanvas.height  = Math.floor(h * dpr);
+  drawCanvas.width= Math.floor(w * dpr); drawCanvas.height= Math.floor(h * dpr);
+
+  figCtx.setTransform(dpr,0,0,dpr,0,0);
+  bpCtx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+
   invalidateBlueprintMask();
-  drawBlueprint();
-  if (typeof historyStep !== 'undefined' && historyStep >= 0) restoreState(historyStep);
+  invalidateFigureMask();
+  drawMannequin(); drawBlueprint();
+  if (historyStep >= 0) restoreState(historyStep);
   applyView();
 }
-const debounced = (fn, ms=120) => { let id; return (...a)=>{ clearTimeout(id); id=setTimeout(()=>fn(...a), ms); }; };
-window.addEventListener('resize', debounced(() => {
-  resizeCanvases();
-}, 120));
+window.addEventListener('resize', resizeCanvases);
 
 /* Pointer mapping */
 function getPosFromEvent(e, canvas) {
@@ -266,7 +333,7 @@ function getPosFromEvent(e, canvas) {
   return { x: (clientX - r.left) * (cssW / r.width), y: (clientY - r.top) * (cssH / r.height) };
 }
 
-/* Picker */
+/* Blueprint picker */
 function renderBlueprintList(){
   const list = document.getElementById('blueprintList');
   list.innerHTML = '';
@@ -284,7 +351,7 @@ function startWithBlueprint(src){
   resizeCanvases(); setBlueprint(src); saveState();
 }
 function setBlueprint(src){
-  const img = new Image(); img.crossOrigin = 'anonymous'; img.src = src;
+  const img = new Image(); img.src = src;
   img.onload = () => { blueprintImage = img; invalidateBlueprintMask(); drawBlueprint(); };
 }
 
@@ -302,14 +369,41 @@ function drawBlueprint(){
   bpCtx.drawImage(blueprintImage, x, y, w, h); bpCtx.restore();
 }
 
-/* Blueprint controls — also invalidate mask on changes */
-bpOpacityInput.oninput = (e)=>{ blueprintOpacity = parseInt(e.target.value,10)/100; bpOpacityVal.textContent = `${e.target.value}%`; invalidateBlueprintMask(); drawBlueprint(); };
-toggleBpBtn.onclick = ()=>{ blueprintVisible = !blueprintVisible; toggleBpBtn.textContent = blueprintVisible ? 'Hide Blueprint' : 'Show Blueprint'; invalidateBlueprintMask(); drawBlueprint(); };
-clearBpBtn.onclick = ()=>{ blueprintImage = null; invalidateBlueprintMask(); drawBlueprint(); };
-pickBpBtn.onclick  = ()=> showBlueprintMenu();
-fitBpBtn.onclick   = ()=> fitViewToBlueprint();
+/* Mannequin picker */
+function renderFigureList(){
+  const list = document.getElementById('figureList');
+  list.innerHTML = '';
+  MANNEQUINS.forEach((m) => {
+    const card = document.createElement('div');
+    card.className = 'bp-card';
+    card.innerHTML = `<img src="${m.src}" alt="${m.name}" role="img"><div class="bp-name">${m.name}</div>`;
+    card.onclick = () => startWithFigure(m.src);
+    list.appendChild(card);
+  });
+}
+function startWithFigure(src){
+  document.getElementById('mannequinMenu').style.display='none';
+  document.getElementById('appWrap').style.display='block';
+  resizeCanvases(); setMannequin(src); saveState();
+}
+function setMannequin(src){
+  const img = new Image(); img.src = src;
+  img.onload = () => { figureImage = img; invalidateFigureMask(); drawMannequin(); };
+}
+function drawMannequin(){
+  const cssW = figCanvas.width / dpr, cssH = figCanvas.height / dpr;
+  figCtx.clearRect(0,0,cssW,cssH);
+  if (!figureImage || !figureVisible) return;
+  const iw = figureImage.naturalWidth || figureImage.width;
+  const ih = figureImage.naturalHeight || figureImage.height;
+  const scale = Math.min(cssW/iw, cssH/ih);
+  const w = iw * scale, h = ih * scale;
+  const x = (cssW - w) / 2, y = (cssH - h) / 2;
+  figCtx.save(); figCtx.globalAlpha = figureOpacity;
+  figCtx.drawImage(figureImage, x, y, w, h); figCtx.restore();
+}
 
-/* Fit helpers */
+/* Fit helpers + **MASK BUILD** */
 function getBlueprintFitDevPx() {
   if (!blueprintImage) return null;
   const cw = drawCanvas.width, ch = drawCanvas.height;
@@ -320,102 +414,112 @@ function getBlueprintFitDevPx() {
   const x = Math.floor((cw - w) / 2), y = Math.floor((ch - h) / 2);
   return { x, y, w, h };
 }
-
-/* ---------- ROBUST MASK BUILD (with fallback + borders as walls) ---------- */
-let maskCanvas=null, maskCtx=null;
-
-function maskHasWalls(mask){
-  let count = 0, limit = Math.max(1500, Math.floor(mask.length*0.001)); // ~0.1%
-  for (let i=0; i<mask.length; i++){ if (mask[i]){ count++; if (count>limit) return true; } }
-  return false;
-}
-
-function buildMaskFromVisibleCanvas(){
-  const w = bpCanvas.width, h = bpCanvas.height;
-  const data = bpCtx.getImageData(0,0,w,h).data;
-  const mask = new Uint8Array(w*h);
-  const ALPHA_MIN = 16, LUMA_MAX = 210;
-  for (let p=0,i=0; p<w*h; p++, i+=4){
-    const a = data[i+3];
-    if (a > ALPHA_MIN){
-      const l = 0.2126*data[i] + 0.7152*data[i+1] + 0.0722*data[i+2];
-      if (l < LUMA_MAX) mask[p] = 1;
-    }
-  }
-  // small dilation
-  const out = new Uint8Array(mask);
-  const rad = Math.max(2, Math.round(2*(window.devicePixelRatio||1)));
-  for (let y=0; y<h; y++){
-    for (let x=0; x<w; x++){
-      if (!mask[y*w+x]) continue;
-      for (let dy=-rad; dy<=rad; dy++){
-        const yy=y+dy; if (yy<0||yy>=h) continue;
-        for (let dx=-rad; dx<=rad; dx++){
-          const xx=x+dx; if (xx<0||xx>=w) continue;
-          out[yy*w+xx] = 1;
-        }
-      }
-    }
-  }
-  // borders as walls
-  for (let x=0; x<w; x++){ out[x]=1; out[(h-1)*w + x]=1; }
-  for (let y=0; y<h; y++){ out[y*w]=1; out[y*w + (w-1)]=1; }
-  return out;
+function getFigureFitDevPx() {
+  if (!figureImage) return null;
+  const cw = drawCanvas.width, ch = drawCanvas.height;
+  const iw = figureImage.naturalWidth || figureImage.width;
+  const ih = figureImage.naturalHeight || figureImage.height;
+  const scale = Math.min(cw/iw, ch/ih);
+  const w = Math.floor(iw * scale), h = Math.floor(ih * scale);
+  const x = Math.floor((cw - w) / 2), y = Math.floor((ch - h) / 2);
+  return { x, y, w, h };
 }
 
 function buildBlueprintMask(){
   const w = drawCanvas.width, h = drawCanvas.height;
-  const empty = new Uint8Array(w*h);
+  const mask = new Uint8Array(w * h);
   const fit = getBlueprintFitDevPx();
-  if (!blueprintImage || !fit) return empty;
+  if (!blueprintImage || !fit) return mask;
 
-  try {
-    if (!maskCanvas){ maskCanvas = document.createElement('canvas'); maskCtx = maskCanvas.getContext('2d'); }
-    maskCanvas.width = w; maskCanvas.height = h;
+  const t = document.createElement('canvas');
+  t.width = w; t.height = h;
+  const tctx = t.getContext('2d');
 
-    const dprLocal = Math.max(1, window.devicePixelRatio||1);
-    maskCtx.clearRect(0,0,w,h);
-    maskCtx.filter = `blur(${2.0 * dprLocal}px)`; // stronger blur to close gaps
-    maskCtx.drawImage(blueprintImage, fit.x, fit.y, fit.w, fit.h);
-    maskCtx.filter = 'none';
+  const dprLocal = Math.max(1, window.devicePixelRatio || 1);
+  tctx.clearRect(0,0,w,h);
+  tctx.filter = `blur(${1.25 * dprLocal}px)`;
+  tctx.drawImage(blueprintImage, fit.x, fit.y, fit.w, fit.h);
+  tctx.filter = 'none';
 
-    const img = maskCtx.getImageData(0,0,w,h).data;
-    const mask = new Uint8Array(w*h);
-    const ALPHA_MIN = 16, LUMA_MAX = 210;
-    for (let p=0,i=0; p<w*h; p++, i+=4){
-      const a = img[i+3];
-      if (a > ALPHA_MIN){
-        const l = 0.2126*img[i] + 0.7152*img[i+1] + 0.0722*img[i+2];
-        if (l < LUMA_MAX) mask[p] = 1;
-      }
+  const img = tctx.getImageData(0,0,w,h);
+  const d = img.data;
+
+  const ALPHA_MIN = 24;
+  const LUMA_MAX  = 190;
+  for (let p=0, i=0; p<w*h; p++, i+=4){
+    const a = d[i+3];
+    if (a > ALPHA_MIN){
+      const l = 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
+      if (l < LUMA_MAX) mask[p] = 1;
     }
-    // light dilation (thicken lines)
-    const rad = Math.max(2, Math.round(3 * dprLocal));
-    const out = new Uint8Array(mask);
-    for (let y=0; y<h; y++){
-      for (let x=0; x<w; x++){
-        if (!mask[y*w+x]) continue;
-        for (let dy=-rad; dy<=rad; dy++){
-          const yy=y+dy; if (yy<0||yy>=h) continue;
-          for (let dx=-rad; dx<=rad; dx++){
-            const xx=x+dx; if (xx<0||xx>=w) continue;
-            out[yy*w+xx] = 1;
-          }
+  }
+
+  const rad = Math.max(1, Math.round(2 * dprLocal));
+  const out = new Uint8Array(mask);
+  for (let y=0; y<h; y++){
+    for (let x=0; x<w; x++){
+      const p = y*w + x;
+      if (!mask[p]) continue;
+      for (let dy=-rad; dy<=rad; dy++){
+        const yy = y+dy; if (yy<0||yy>=h) continue;
+        for (let dx=-rad; dx<=rad; dx++){
+          const xx = x+dx; if (xx<0||xx>=w) continue;
+          out[yy*w + xx] = 1;
         }
       }
     }
-    // borders as walls
-    for (let x=0; x<w; x++){ out[x]=1; out[(h-1)*w + x]=1; }
-    for (let y=0; y<h; y++){ out[y*w]=1; out[y*w + (w-1)]=1; }
-
-    if (!maskHasWalls(out)) return buildMaskFromVisibleCanvas();
-    return out;
-  } catch(err){
-    console.warn('Mask-from-image failed, using visible canvas:', err);
-    return buildMaskFromVisibleCanvas();
   }
+  return out;
+}
+
+/* Mask for white-outline mannequin */
+function buildFigureMask(){
+  const w = drawCanvas.width, h = drawCanvas.height;
+  const mask = new Uint8Array(w * h);
+  const fit = getFigureFitDevPx();
+  if (!figureImage || !fit) return mask;
+
+  const t = document.createElement('canvas'); t.width = w; t.height = h;
+  const tctx = t.getContext('2d');
+
+  const dprLocal = Math.max(1, window.devicePixelRatio || 1);
+  tctx.clearRect(0,0,w,h);
+  tctx.filter = `blur(${1.25 * dprLocal}px)`;
+  tctx.drawImage(figureImage, fit.x, fit.y, fit.w, fit.h);
+  tctx.filter = 'none';
+
+  const img = tctx.getImageData(0,0,w,h);
+  const d = img.data;
+
+  const ALPHA_MIN = 18;
+  const LUMA_MIN_FOR_WHITE = 210; // white-ish lines on transparent bg
+  for (let p=0, i=0; p<w*h; p++, i+=4){
+    const a = d[i+3];
+    if (a > ALPHA_MIN){
+      const l = 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
+      if (l > LUMA_MIN_FOR_WHITE) mask[p] = 1;
+    }
+  }
+
+  const rad = Math.max(1, Math.round(2 * dprLocal));
+  const out = new Uint8Array(mask);
+  for (let y=0; y<h; y++){
+    for (let x=0; x<w; x++){
+      const p = y*w + x;
+      if (!mask[p]) continue;
+      for (let dy=-rad; dy<=rad; dy++){
+        const yy = y+dy; if (yy<0||yy>=h) continue;
+        for (let dx=-rad; dx<=rad; dx++){
+          const xx = x+dx; if (xx<0||xx>=w) continue;
+          out[yy*w + xx] = 1;
+        }
+      }
+    }
+  }
+  return out;
 }
 </script>
+
 <script>
 /* ---------- Drawing + Undo/Redo + Fill (mask-aware) + Zoom/Pan + Paint Types ---------- */
 const FILL_TOLERANCE = 40;
@@ -493,7 +597,7 @@ function restoreState(step){
   const img = new Image(); img.src = history[step];
   img.onload = () => {
     const w = drawCanvas.width / dpr, h = drawCanvas.height / dpr;
-    ctx.clearRect(0, 0, w, h); ctx.drawImage(img, 0, 0, w, h); drawBlueprint();
+    ctx.clearRect(0, 0, w, h); ctx.drawImage(img, 0, 0, w, h); drawBlueprint(); drawMannequin();
   };
 }
 
@@ -589,23 +693,39 @@ zoomWrap.addEventListener('touchmove', (e) => {
 zoomWrap.addEventListener('touchend', (e) => { if (e.touches.length < 2) { gesture.active = false; } }, {passive:false});
 zoomWrap.addEventListener('touchcancel', () => { gesture.active = false; }, {passive:false});
 
-/* Fit to blueprint — center by fit-rect */
+/* Fit buttons */
 function fitViewToBlueprint(){
   const fit = getBlueprintFitDevPx();
   if (!fit) return;
   const rect = stage.getBoundingClientRect();
+  const worldW = drawCanvas.width / dpr;
+  const worldH = drawCanvas.height / dpr;
   const pad = 16;
-  const scaleX = (rect.width  - pad*2) / (fit.w / dpr);
+  const scaleX = (rect.width - pad*2) / (fit.w / dpr);
   const scaleY = (rect.height - pad*2) / (fit.h / dpr);
   zoomFactor = clamp(Math.min(scaleX, scaleY), 0.5, 4.0);
   const pct = Math.round(zoomFactor * 100);
   document.getElementById('zoom').value = pct;
   document.getElementById('zoomVal').textContent = pct + '%';
-  const screenCX = rect.width / 2, screenCY = rect.height / 2;
-  const fitCX = (fit.x / dpr) + (fit.w / dpr)/2;
-  const fitCY = (fit.y / dpr) + (fit.h / dpr)/2;
-  panX = screenCX - fitCX * zoomFactor;
-  panY = screenCY - fitCY * zoomFactor;
+  panX = (rect.width  - worldW*zoomFactor)/2;
+  panY = (rect.height - worldH*zoomFactor)/2;
+  applyView();
+}
+function fitViewToFigure(){
+  const fit = getFigureFitDevPx();
+  if (!fit) return;
+  const rect = stage.getBoundingClientRect();
+  const worldW = drawCanvas.width / dpr;
+  const worldH = drawCanvas.height / dpr;
+  const pad = 16;
+  const scaleX = (rect.width - pad*2) / (fit.w / dpr);
+  const scaleY = (rect.height - pad*2) / (fit.h / dpr);
+  zoomFactor = clamp(Math.min(scaleX, scaleY), 0.5, 4.0);
+  const pct = Math.round(zoomFactor * 100);
+  document.getElementById('zoom').value = pct;
+  document.getElementById('zoomVal').textContent = pct + '%';
+  panX = (rect.width  - worldW*zoomFactor)/2;
+  panY = (rect.height - worldH*zoomFactor)/2;
   applyView();
 }
 
@@ -796,6 +916,18 @@ document.getElementById('save').onclick = () => {
   const wDev = drawCanvas.width, hDev = drawCanvas.height;
   const out = document.createElement('canvas'); out.width = wDev; out.height = hDev;
   const octx = out.getContext('2d');
+
+  // Include mannequin if visible
+  if (figureImage && figureVisible){
+    const fitF = getFigureFitDevPx();
+    if (fitF){
+      octx.globalAlpha = figureOpacity;
+      octx.drawImage(figureImage, fitF.x, fitF.y, fitF.w, fitF.h);
+      octx.globalAlpha = 1.0;
+    }
+  }
+
+  // Include blueprint if visible
   if (blueprintImage && blueprintVisible){
     const fit = getBlueprintFitDevPx();
     if (fit){
@@ -818,7 +950,32 @@ fillBtn.onclick = () => {
   if (fillMode && strokeMode === 'erase') setStrokeMode('paint');
 };
 
-/* --------- Improved MASK-AWARE Flood Fill ---------- */
+/* Mannequin controls */
+figOpacityInput.oninput = (e)=>{
+  figureOpacity = parseInt(e.target.value,10)/100;
+  figOpacityVal.textContent = `${e.target.value}%`;
+  drawMannequin();
+};
+toggleFigBtn.onclick = ()=>{
+  figureVisible = !figureVisible;
+  toggleFigBtn.textContent = figureVisible ? 'Hide Mannequin' : 'Show Mannequin';
+  drawMannequin();
+};
+clearFigBtn.onclick = ()=>{
+  figureImage = null; invalidateFigureMask(); drawMannequin();
+};
+pickFigBtn.onclick  = ()=> showFigureMenu();
+fitFigBtn.onclick   = ()=> fitViewToFigure();
+figWallsChk.onchange = ()=> { invalidateFigureMask(); };
+
+/* Blueprint controls */
+bpOpacityInput.oninput = (e)=>{ blueprintOpacity = parseInt(e.target.value,10)/100; bpOpacityVal.textContent = `${e.target.value}%`; drawBlueprint(); };
+toggleBpBtn.onclick = ()=>{ blueprintVisible = !blueprintVisible; toggleBpBtn.textContent = blueprintVisible ? 'Hide Blueprint' : 'Show Blueprint'; drawBlueprint(); };
+clearBpBtn.onclick = ()=>{ blueprintImage = null; invalidateBlueprintMask(); drawBlueprint(); };
+pickBpBtn.onclick  = ()=> showBlueprintMenu();
+fitBpBtn.onclick   = ()=> fitViewToBlueprint();
+
+/* --------- Improved MASK-AWARE Flood Fill (with mannequin walls optional) ---------- */
 function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
   if (isFilling) return;
   isFilling = true;
@@ -826,9 +983,8 @@ function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
   try {
     const x0 = Math.floor(xCss * dpr), y0 = Math.floor(yCss * dpr);
     const w = drawCanvas.width, h = drawCanvas.height;
-
     if (!bpMask) bpMask = buildBlueprintMask();
-    if (!maskHasWalls(bpMask)) bpMask = buildMaskFromVisibleCanvas(); // final fallback
+    if (figWallsChk && figWallsChk.checked && !figMask) figMask = buildFigureMask();
 
     const img = ctx.getImageData(0, 0, w, h);
     const data = img.data;
@@ -838,28 +994,22 @@ function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
     const [fr, fg, fb] = hexToRgba(hexColor);
     if (data[seed+3] === 255 && sr===fr && sg===fg && sb===fb) { isFilling=false; document.body.style.cursor=''; return; }
 
-    // Near-line guard — stronger & dpr-aware
     const dprLocal = Math.max(1, window.devicePixelRatio || 1);
-    const guard = Math.max(3, Math.round(3 * dprLocal)); // tighter near walls
+    const guard = Math.max(2, Math.round(2 * dprLocal));
 
+    function onAnyMask(p){
+      const onBp  = bpMask ? (bpMask[p] === 1) : false;
+      const onFig = (figWallsChk && figWallsChk.checked && figMask) ? (figMask[p] === 1) : false;
+      return onBp || onFig;
+    }
     function nearMask(px){
       const x = px % w, y = (px / w) | 0;
-      const r = guard;
-      // sample perimeter ring instead of full square
-      for (let dx=-r; dx<=r; dx++){
-        const xx = x+dx;
-        if (xx>=0 && xx<w){
-          const y1=y-r, y2=y+r;
-          if (y1>=0 && bpMask[y1*w+xx]) return true;
-          if (y2<h  && bpMask[y2*w+xx]) return true;
-        }
-      }
-      for (let dy=-r+1; dy<=r-1; dy++){
-        const yy=y+dy;
-        if (yy>=0 && yy<h){
-          const x1=x-r, x2=x+r;
-          if (x1>=0 && bpMask[yy*w+x1]) return true;
-          if (x2<w  && bpMask[yy*w+x2]) return true;
+      for (let dy=-guard; dy<=guard; dy++){
+        const yy = y+dy; if (yy<0||yy>=h) continue;
+        for (let dx=-guard; dx<=guard; dx++){
+          const xx = x+dx; if (xx<0||xx>=w) continue;
+          const p2 = yy*w + xx;
+          if (onAnyMask(p2)) return true;
         }
       }
       return false;
@@ -867,17 +1017,16 @@ function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
 
     function colorClose(r1,g1,b1, r2,g2,b2, tol){ return Math.abs(r1-r2)<=tol && Math.abs(g1-g2)<=tol && Math.abs(b1-b2)<=tol; }
     const visited = new Uint8Array(w * h);
-    const stack = [[x0, y0]];
 
+    const stack = [[x0, y0]];
     while (stack.length){
       let [cx, cy] = stack.pop();
       let p = cy*w + cx, idx = p*4;
 
       // seek left
       while (cx >= 0){
-        const onMask = bpMask[p] === 1;
-        const tolLocal = onMask || nearMask(p) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
-        if (visited[p] || onMask || !colorClose(data[idx], data[idx+1], data[idx+2], sr, sg, sb, tolLocal)) break;
+        const tolLocal = onAnyMask(p) || nearMask(p) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
+        if (visited[p] || onAnyMask(p) || !colorClose(data[idx], data[idx+1], data[idx+2], sr, sg, sb, tolLocal)) break;
         cx--; p--; idx -= 4;
       }
       cx++; p++; idx += 4;
@@ -885,26 +1034,23 @@ function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
       let spanUp = false, spanDown = false;
       while (cx < w){
         p = cy*w + cx; idx = p*4;
-        const onMask = bpMask[p] === 1;
-        const tolLocal = onMask || nearMask(p) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
-        if (visited[p] || onMask || !colorClose(data[idx], data[idx+1], data[idx+2], sr, sg, sb, tolLocal)) break;
+        const tolLocal = onAnyMask(p) || nearMask(p) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
+        if (visited[p] || onAnyMask(p) || !colorClose(data[idx], data[idx+1], data[idx+2], sr, sg, sb, tolLocal)) break;
 
         visited[p] = 1;
         data[idx]   = fr; data[idx+1] = fg; data[idx+2] = fb; data[idx+3] = 255;
 
         if (cy > 0){
           const upP = (cy-1)*w + cx, upIdx = upP*4;
-          const onM = bpMask[upP]===1;
-          const tolU = onM || nearMask(upP) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
-          if (!visited[upP] && !onM && colorClose(data[upIdx], data[upIdx+1], data[upIdx+2], sr, sg, sb, tolU)) {
+          const tolU = onAnyMask(upP) || nearMask(upP) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
+          if (!visited[upP] && !onAnyMask(upP) && colorClose(data[upIdx], data[upIdx+1], data[upIdx+2], sr, sg, sb, tolU)) {
             if (!spanUp){ stack.push([cx, cy-1]); spanUp = true; }
           } else spanUp = false;
         }
         if (cy < h-1){
           const dnP = (cy+1)*w + cx, dnIdx = dnP*4;
-          const onM = bpMask[dnP]===1;
-          const tolD = onM || nearMask(dnP) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
-          if (!visited[dnP] && !onM && colorClose(data[dnIdx], data[dnIdx+1], data[dnIdx+2], sr, sg, sb, tolD)) {
+          const tolD = onAnyMask(dnP) || nearMask(dnP) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
+          if (!visited[dnP] && !onAnyMask(dnP) && colorClose(data[dnIdx], data[dnIdx+1], data[dnIdx+2], sr, sg, sb, tolD)) {
             if (!spanDown){ stack.push([cx, cy+1]); spanDown = true; }
           } else spanDown = false;
         }
@@ -926,30 +1072,27 @@ function hexToRgba(hex){
   return [(n>>16)&255,(n>>8)&255,n&255,255];
 }
 
-/* Keyboard shortcuts — ignore when typing */
+/* Shortcuts */
 document.addEventListener('keydown', (e) => {
-  const t = e.target;
-  const isForm = t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
-  if (isForm) return;
-
   const k = e.key.toLowerCase();
   if ((e.ctrlKey||e.metaKey) && !e.shiftKey && k==='z'){ document.getElementById('undo').click(); e.preventDefault(); }
   if ((e.ctrlKey||e.metaKey) && ((e.shiftKey && k==='z') || k==='y')){ document.getElementById('redo').click(); e.preventDefault(); }
   if (!e.ctrlKey && !e.metaKey && k==='e'){ setStrokeMode(strokeMode==='erase' ? 'paint' : 'erase'); }
   if (!e.ctrlKey && !e.metaKey && k==='f'){ fillBtn.click(); }
-  if ((e.ctrlKey||e.metaKey) && k==='s'){ document.getElementById('save').click(); e.preventDefault(); }
 });
 
 /* Return to Main Menu — full reset */
 document.getElementById('returnMenu').onclick = () => {
   document.getElementById('appWrap').style.display = 'none';
   document.getElementById('blueprintMenu').style.display = 'none';
+  document.getElementById('mannequinMenu').style.display = 'none';
   document.getElementById('overlay').style.display = 'none';
   document.getElementById('menu').style.display = 'flex';
 
   const drawW = drawCanvas.width / dpr, drawH = drawCanvas.height / dpr;
   const bpW   = bpCanvas.width   / dpr, bpH   = bpCanvas.height   / dpr;
-  ctx.clearRect(0,0,drawW,drawH); bpCtx.clearRect(0,0,bpW,bpH); ctx.beginPath();
+  const figW  = figCanvas.width  / dpr, figH  = figCanvas.height  / dpr;
+  ctx.clearRect(0,0,drawW,drawH); bpCtx.clearRect(0,0,bpW,bpH); figCtx.clearRect(0,0,figW,figH); ctx.beginPath();
 
   history = []; historyStep = -1;
 
@@ -957,6 +1100,7 @@ document.getElementById('returnMenu').onclick = () => {
   fillMode = false; fillBtn.classList.remove('primary'); fillBtn.setAttribute('aria-pressed','false'); drawCanvas.style.cursor = 'default';
 
   blueprintImage = null; blueprintVisible = true; invalidateBlueprintMask();
+  figureImage = null; figureVisible = true; invalidateFigureMask();
 
   zoomFactor = 1; panX = 0; panY = 0; zoomSlider.value = 100; zoomVal.textContent = '100%'; applyView();
 
@@ -968,12 +1112,24 @@ document.getElementById('returnMenu').onclick = () => {
   if (bpSlider) bpSlider.value = 30; if (bpLabel) bpLabel.textContent = '30%';
   blueprintOpacity = 0.30;
 
+  const tFigBtn = document.getElementById('toggleFigure');
+  if (tFigBtn) tFigBtn.textContent = 'Hide Mannequin';
+
+  const figSlider = document.getElementById('figOpacity');
+  const figLabel  = document.getElementById('figOpacityVal');
+  if (figSlider) figSlider.value = 85; if (figLabel) figLabel.textContent = '85%';
+  figureOpacity = 0.85;
+
+  if (figWallsChk) figWallsChk.checked = false;
+
+  drawMannequin();
   drawBlueprint();
 };
 
 /* Initial state */
 document.getElementById('menu').style.display='flex';
 document.getElementById('blueprintMenu').style.display='none';
+document.getElementById('mannequinMenu').style.display='none';
 document.getElementById('appWrap').style.display='none';
 document.getElementById('overlay').style.display='none';
 setStrokeMode('paint');
@@ -990,6 +1146,7 @@ applyView(); // initial zoom/pan
     console.assert(typeof drawNeonSegment==='function','neon exists');
     console.assert(typeof drawMetallicSegment==='function','metallic exists');
     console.assert(document.getElementById('paintType'), 'paintType select exists');
+    console.assert(typeof drawMannequin==='function','mannequin draw exists');
     console.groupEnd();
   } catch(err){ console.error('Self-tests failed:', err); }
 })();
