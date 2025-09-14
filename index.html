@@ -56,11 +56,7 @@
 
   /* Dim/disable inactive control groups */
   .seg.dim { opacity: .55; }
-  .btn:disabled, input:disabled {
-    opacity: .5;
-    cursor: not-allowed;
-    filter: none;
-  }
+  .btn:disabled, input:disabled { opacity: .5; cursor: not-allowed; filter: none; }
 </style>
 </head>
 <body>
@@ -380,7 +376,7 @@ function getPosFromEvent(e, canvas) {
   return { x: (clientX - r.left) * (cssW / r.width), y: (clientY - r.top) * (cssH / r.height) };
 }
 
-/* ---------- Pickers ---------- */
+/* ---------- Pickers / drawing guides ---------- */
 function renderBlueprintList(){
   const list = document.getElementById('blueprintList');
   list.innerHTML = '';
@@ -395,13 +391,13 @@ function renderBlueprintList(){
 function startWithBlueprint(src){
   document.getElementById('blueprintMenu').style.display='none';
   document.getElementById('appWrap').style.display='block';
-  setGuideMode('blueprint');     // exclusivity
+  setGuideMode('blueprint');
   resizeCanvases();
   setBlueprint(src);
 }
 function setBlueprint(src){
   const img = new Image();
-  img.crossOrigin = "anonymous"; // CORS-safe for toDataURL
+  img.crossOrigin = "anonymous";
   img.src = src;
   img.onload = () => { blueprintImage = img; invalidateBlueprintMask(); drawBlueprint(); };
 }
@@ -432,7 +428,7 @@ function renderFigureList(){
 function startWithFigure(src){
   document.getElementById('mannequinMenu').style.display='none';
   document.getElementById('appWrap').style.display='block';
-  setGuideMode('mannequin');     // exclusivity
+  setGuideMode('mannequin');
   resizeCanvases();
   setMannequin(src);
 }
@@ -455,7 +451,7 @@ function drawMannequin(){
   figCtx.drawImage(figureImage, x, y, w, h); figCtx.restore();
 }
 
-/* ---------- Mask builders ---------- */
+/* Fit helpers (device pixels) */
 function getBlueprintFitDevPx() {
   if (!blueprintImage) return null;
   const cw = drawCanvas.width, ch = drawCanvas.height;
@@ -476,18 +472,28 @@ function getFigureFitDevPx() {
   const x = Math.floor((cw - w) / 2), y = Math.floor((ch - h) / 2);
   return { x, y, w, h };
 }
+</script>
+<script>
+/* ---------- Mask builders (strengthened) ---------- */
 function buildBlueprintMask(){
   const w = drawCanvas.width, h = drawCanvas.height;
   const mask = new Uint8Array(w * h);
   const fit = getBlueprintFitDevPx();
   if (!blueprintImage || !fit) return mask;
-  const t = document.createElement('canvas'); t.width = w; t.height = h;
+
+  const t = document.createElement('canvas');
+  t.width = w; t.height = h;
   const tctx = t.getContext('2d');
+
   const dprLocal = Math.max(1, window.devicePixelRatio || 1);
+
   tctx.clearRect(0,0,w,h);
-  tctx.filter = `blur(${1.25 * dprLocal}px)`;
+  // Stronger blur to close tiny gaps
+  const BLUR = 1.75 * dprLocal;
+  tctx.filter = `blur(${BLUR}px)`;
   tctx.drawImage(blueprintImage, fit.x, fit.y, fit.w, fit.h);
   tctx.filter = 'none';
+
   const img = tctx.getImageData(0,0,w,h); const d = img.data;
   const ALPHA_MIN = 24, LUMA_MAX  = 190;
   for (let p=0,i=0;p<w*h;p++,i+=4){
@@ -496,7 +502,8 @@ function buildBlueprintMask(){
       if (l < LUMA_MAX) mask[p]=1;
     }
   }
-  const rad = Math.max(1, Math.round(2 * dprLocal));
+
+  const rad = Math.max(1, Math.round(2.5 * dprLocal)); // slightly thicker walls
   const out = new Uint8Array(mask);
   for (let y=0;y<h;y++) for (let x=0;x<w;x++){
     const p=y*w+x; if (!mask[p]) continue;
@@ -511,22 +518,29 @@ function buildFigureMask(){
   const mask = new Uint8Array(w * h);
   const fit = getFigureFitDevPx();
   if (!figureImage || !fit) return mask;
-  const t = document.createElement('canvas'); t.width = w; t.height = h;
+
+  const t = document.createElement('canvas');
+  t.width = w; t.height = h;
   const tctx = t.getContext('2d');
+
   const dprLocal = Math.max(1, window.devicePixelRatio || 1);
+
   tctx.clearRect(0,0,w,h);
-  tctx.filter = `blur(${1.25 * dprLocal}px)`;
+  const BLUR = 1.75 * dprLocal;
+  tctx.filter = `blur(${BLUR}px)`;
   tctx.drawImage(figureImage, fit.x, fit.y, fit.w, fit.h);
   tctx.filter = 'none';
+
   const img = tctx.getImageData(0,0,w,h); const d = img.data;
-  const ALPHA_MIN = 18, LUMA_MIN_FOR_WHITE = 200; /* was 210 */
+  const ALPHA_MIN = 18, LUMA_MIN_FOR_WHITE = 200;
   for (let p=0,i=0;p<w*h;p++,i+=4){
     const a=d[i+3]; if (a>ALPHA_MIN){
       const l=0.2126*d[i]+0.7152*d[i+1]+0.0722*d[i+2];
       if (l > LUMA_MIN_FOR_WHITE) mask[p]=1;
     }
   }
-  const rad = Math.max(1, Math.round(2 * dprLocal));
+
+  const rad = Math.max(1, Math.round(2.5 * dprLocal));
   const out = new Uint8Array(mask);
   for (let y=0;y<h;y++) for (let x=0;x<w;x++){
     const p=y*w+x; if (!mask[p]) continue;
@@ -818,54 +832,101 @@ function drawMetallicSegment(p0, p1, baseHex, size, sheen){
   ctx.restore();
 }
 
-/* Drawing (mouse) */
-drawCanvas.addEventListener('mousedown', (e) => {
-  if (spaceDown) return;
-  const p = getPosFromEvent(e, drawCanvas);
-  if (fillMode){ floodFillAt(p.x, p.y, brushColor, fillTolerance); saveState(); return; }
-  drawing = true; lastPoint = p; beginDot(p);
-});
-window.addEventListener('mouseup', ()  => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); });
-drawCanvas.addEventListener('mouseleave',()  => { drawing = false; lastPoint = null; ctx.beginPath(); });
-drawCanvas.addEventListener('mousemove', (e) => {
-  if (spaceDown || !drawing || fillMode) return;
-  const p = getPosFromEvent(e, drawCanvas);
-  ctx.lineWidth = brushSize; ctx.lineCap = 'round';
-  if (strokeMode === 'paint') ctx.strokeStyle = brushColor; else ctx.strokeStyle = 'rgba(0,0,0,1)';
-  ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
-  if (strokeMode === 'paint') {
-    if (paintType === 'glitter'){ drawGlitterAlongSegment(lastPoint, p); }
-    else if (paintType === 'neon'){ const core=Math.max(1, brushSize*0.7); const glow=Math.max(2, neonWidth); drawNeonSegment(lastPoint, p, brushColor, core, glow); }
-    else if (paintType === 'metallic'){ drawMetallicSegment(lastPoint, p, brushColor, brushSize, metalSheen); }
-  }
-  lastPoint = p;
-});
+/* ---------- Flood Fill (fixed) ---------- */
+function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
+  if (isFilling) return;
+  isFilling = true;
+  document.body.style.cursor = 'progress';
+  try {
+    const x0 = Math.floor(xCss * dpr), y0 = Math.floor(yCss * dpr);
+    const w = drawCanvas.width, h = drawCanvas.height;
 
-/* Drawing (touch) */
-drawCanvas.addEventListener('touchstart', (e) => {
-  if (e.touches.length !== 1) return;
-  e.preventDefault();
-  if (spaceDown) return;
-  const p = getPosFromEvent(e, drawCanvas);
-  if (fillMode){ floodFillAt(p.x, p.y, brushColor, fillTolerance); saveState(); return; }
-  drawing = true; lastPoint = p; beginDot(p);
-}, {passive:false});
-drawCanvas.addEventListener('touchend', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); }, {passive:false});
-drawCanvas.addEventListener('touchcancel', () => { if (drawing) saveState(); drawing = false; lastPoint = null; ctx.beginPath(); }, {passive:false});
-drawCanvas.addEventListener('touchmove', (e) => {
-  if (e.touches.length !== 1) return;
-  e.preventDefault(); if (!drawing || fillMode || spaceDown) return;
-  const p = getPosFromEvent(e, drawCanvas);
-  ctx.lineWidth = brushSize; ctx.lineCap = 'round';
-  if (strokeMode === 'paint') ctx.strokeStyle = brushColor; else ctx.strokeStyle = 'rgba(0,0,0,1)';
-  ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
-  if (strokeMode === 'paint') {
-    if (paintType === 'glitter'){ drawGlitterAlongSegment(lastPoint, p); }
-    else if (paintType === 'neon'){ const core=Math.max(1, brushSize*0.7); const glow=Math.max(2, neonWidth); drawNeonSegment(lastPoint, p, brushColor, core, glow); }
-    else if (paintType === 'metallic'){ drawMetallicSegment(lastPoint, p, brushColor, brushSize, metalSheen); }
+    // Use walls from any visible guide (prevents mask-less floods)
+    const useBp  = !!(blueprintImage && blueprintVisible);
+    const useFig = !!(figureImage && figureVisible && figWallsChk && figWallsChk.checked);
+
+    if (useBp  && !bpMask)  bpMask  = buildBlueprintMask();
+    if (useFig && !figMask) figMask = buildFigureMask();
+
+    const img = ctx.getImageData(0, 0, w, h);
+    const data = img.data;
+
+    const seed = (y0 * w + x0) * 4;
+    const sr = data[seed], sg = data[seed+1], sb = data[seed+2];
+
+    const [fr, fg, fb] = hexToRgba(hexColor);
+    if (data[seed+3] === 255 && sr===fr && sg===fg && sb===fb) { isFilling=false; document.body.style.cursor=''; return; }
+
+    const dprLocal = Math.max(1, window.devicePixelRatio || 1);
+    // Slimmer keep-away so we don’t leave skinny slivers
+    const guard = Math.max(1, Math.round(1 * dprLocal));
+
+    function onAnyMask(p){
+      if (useBp  && bpMask  && bpMask[p]  === 1) return true;
+      if (useFig && figMask && figMask[p] === 1) return true;
+      return false;
+    }
+    function nearMask(px){
+      const x = px % w, y = (px / w) | 0;
+      for (let dy=-guard; dy<=guard; dy++){
+        const yy = y+dy; if (yy<0||yy>=h) continue;
+        for (let dx=-guard; dx<=guard; dx++){
+          const xx = x+dx; if (xx<0||xx>=w) continue;
+          const p2 = yy*w + xx; if (onAnyMask(p2)) return true;
+        }
+      }
+      return false;
+    }
+    function colorClose(r1,g1,b1, r2,g2,b2, tol){ return Math.abs(r1-r2)<=tol && Math.abs(g1-g2)<=tol && Math.abs(b1-b2)<=tol; }
+
+    const visited = new Uint8Array(w * h);
+    const stack = [[x0, y0]];
+
+    while (stack.length){
+      let [cx, cy] = stack.pop();
+      let p = cy*w + cx, idx = p*4;
+
+      // seek left
+      while (cx >= 0){
+        const tolLocal = onAnyMask(p) || nearMask(p) ? Math.min(6, Math.floor(tolerance*0.35)) : tolerance;
+        if (visited[p] || onAnyMask(p) || !colorClose(data[idx], data[idx+1], data[idx+2], sr, sg, sb, tolLocal)) break;
+        cx--; p--; idx -= 4;
+      }
+      cx++; p++; idx += 4;
+
+      let spanUp = false, spanDown = false;
+      while (cx < w){
+        p = cy*w + cx; idx = p*4;
+        const tolLocal = onAnyMask(p) || nearMask(p) ? Math.min(6, Math.floor(tolerance*0.35)) : tolerance;
+        if (visited[p] || onAnyMask(p) || !colorClose(data[idx], data[idx+1], data[idx+2], sr, sg, sb, tolLocal)) break;
+
+        visited[p] = 1;
+        data[idx]   = fr; data[idx+1] = fg; data[idx+2] = fb; data[idx+3] = 255;
+
+        if (cy > 0){
+          const upP = (cy-1)*w + cx, upIdx = upP*4;
+          const tolU = onAnyMask(upP) || nearMask(upP) ? Math.min(6, Math.floor(tolerance*0.35)) : tolerance;
+          if (!visited[upP] && !onAnyMask(upP) && colorClose(data[upIdx], data[upIdx+1], data[upIdx+2], sr, sg, sb, tolU)) {
+            if (!spanUp){ stack.push([cx, cy-1]); spanUp = true; }
+          } else spanUp = false;
+        }
+        if (cy < h-1){
+          const dnP = (cy+1)*w + cx, dnIdx = dnP*4;
+          const tolD = onAnyMask(dnP) || nearMask(dnP) ? Math.min(6, Math.floor(tolerance*0.35)) : tolerance;
+          // keep earlier bugfix: use idx+1 for G channel
+          if (!visited[dnP] && !onAnyMask(dnP) && colorClose(data[dnIdx], data[dnIdx+1], data[dnIdx+2], sr, sg, sb, tolD)) {
+            if (!spanDown){ stack.push([cx, cy+1]); spanDown = true; }
+          } else spanDown = false;
+        }
+        cx++;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  } finally {
+    isFilling = false;
+    document.body.style.cursor = '';
   }
-  lastPoint = p;
-}, {passive:false});
+}
 
 /* Controls */
 document.getElementById('color').oninput = e => brushColor = e.target.value;
@@ -875,7 +936,7 @@ document.getElementById('undo').onclick  = () => { if (historyStep > 0) { histor
 document.getElementById('redo').onclick  = () => { if (historyStep < history.length - 1) { historyStep++; restoreState(historyStep); } };
 document.getElementById('clear').onclick = () => { resetDrawingLayer(); };
 
-/* Save PNG (export whatever is visible; safe if you relax exclusivity later) */
+/* Save PNG (exports visible guide(s) + paint) */
 document.getElementById('save').onclick = () => {
   try{
     const wDev = drawCanvas.width, hDev = drawCanvas.height;
@@ -894,12 +955,13 @@ document.getElementById('save').onclick = () => {
     const url = out.toDataURL('image/png');
     const a = document.createElement('a'); a.href = url; a.download = 'depictly_drawing.png'; a.click();
   } catch (err){
-    alert('Could not save PNG (possibly due to image CORS). Try local assets or enable CORS.');
+    alert('Could not save PNG (image CORS). Host assets on same origin or enable CORS.');
     console.error(err);
   }
 };
 
 /* Fill tool toggle */
+const fillBtn = document.getElementById('fillTool');
 fillBtn.onclick = () => {
   fillMode = !fillMode;
   fillBtn.classList.toggle('primary', fillMode);
@@ -923,7 +985,8 @@ toggleFigBtn.onclick = ()=> {
 clearFigBtn.onclick = ()=>{ 
   figureImage = null; invalidateFigureMask(); 
   if (activeGuide === 'mannequin') setGuideMode('none'); else refreshControlLocking();
-  toggleFigBtn.textContent = 'Hide Mannequin'; /* keep label consistent after clear */
+  toggleFigBtn.textContent = 'Hide Mannequin';
+  figureVisible = true;
   drawMannequin(); 
 };
 fitFigBtn.onclick   = ()=> fitViewToFigure();
@@ -944,7 +1007,8 @@ toggleBpBtn.onclick = ()=> {
 clearBpBtn.onclick = ()=>{ 
   blueprintImage = null; invalidateBlueprintMask(); 
   if (activeGuide === 'blueprint') setGuideMode('none'); else refreshControlLocking();
-  toggleBpBtn.textContent = 'Hide Blueprint'; /* keep label consistent after clear */
+  toggleBpBtn.textContent = 'Hide Blueprint';
+  blueprintVisible = true;
   drawBlueprint(); 
 };
 fitBpBtn.onclick   = ()=> fitViewToBlueprint();
@@ -953,104 +1017,14 @@ fitBpBtn.onclick   = ()=> fitViewToBlueprint();
 pickBpBtn.onclick  = () => { resetDrawingLayer(); showBlueprintMenu(); };
 pickFigBtn.onclick = () => { resetDrawingLayer(); showFigureMenu(); };
 
-/* Flood Fill (mask-aware; ONLY the active guide; mannequin walls optional) */
-function floodFillAt(xCss, yCss, hexColor, tolerance = FILL_TOLERANCE) {
-  if (isFilling) return;
-  isFilling = true; document.body.style.cursor = 'progress';
-  try {
-    const x0 = Math.floor(xCss * dpr), y0 = Math.floor(yCss * dpr);
-    const w = drawCanvas.width, h = drawCanvas.height;
-
-    const useBp  = (activeGuide === 'blueprint');
-    const useFig = (activeGuide === 'mannequin' && figWallsChk && figWallsChk.checked);
-
-    if (useBp  && !bpMask)  bpMask  = buildBlueprintMask();
-    if (useFig && !figMask) figMask = buildFigureMask();
-
-    const img = ctx.getImageData(0, 0, w, h); const data = img.data;
-    const seed = (y0 * w + x0) * 4; const sr = data[seed], sg = data[seed+1], sb = data[seed+2];
-    const [fr, fg, fb] = hexToRgba(hexColor);
-    if (data[seed+3] === 255 && sr===fr && sg===fg && sb===fb) { isFilling=false; document.body.style.cursor=''; return; }
-
-    const dprLocal = Math.max(1, window.devicePixelRatio || 1);
-    const guard = Math.max(2, Math.round(2 * dprLocal));
-    const visited = new Uint8Array(w * h);
-
-    function onAnyMask(p){
-      if (useBp  && bpMask  && bpMask[p]  === 1) return true;
-      if (useFig && figMask && figMask[p] === 1) return true;
-      return false;
-    }
-    function nearMask(px){
-      const x = px % w, y = (px / w) | 0;
-      for (let dy=-guard; dy<=guard; dy++){
-        const yy = y+dy; if (yy<0||yy>=h) continue;
-        for (let dx=-guard; dx<=guard; dx++){
-          const xx = x+dx; if (xx<0||xx>=w) continue;
-          const p2 = yy*w + xx; if (onAnyMask(p2)) return true;
-        }
-      }
-      return false;
-    }
-    function colorClose(r1,g1,b1, r2,g2,b2, tol){ return Math.abs(r1-r2)<=tol && Math.abs(g1-g2)<=tol && Math.abs(b1-b2)<=tol; }
-
-    const stack = [[x0, y0]];
-    while (stack.length){
-      let [cx, cy] = stack.pop();
-      let p = cy*w + cx, idx = p*4;
-      while (cx >= 0){
-        const tolLocal = onAnyMask(p) || nearMask(p) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
-        if (visited[p] || onAnyMask(p) || !colorClose(data[idx], data[idx+1], data[idx+2], sr, sg, sb, tolLocal)) break;
-        cx--; p--; idx -= 4;
-      }
-      cx++; p++; idx += 4;
-
-      let spanUp = false, spanDown = false;
-      while (cx < w){
-        p = cy*w + cx; idx = p*4;
-        const tolLocal = onAnyMask(p) || nearMask(p) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
-        if (visited[p] || onAnyMask(p) || !colorClose(data[idx], data[idx+1], data[idx+2], sr, sg, sb, tolLocal)) break;
-
-        visited[p] = 1;
-        data[idx]   = fr; data[idx+1] = fg; data[idx+2] = fb; data[idx+3] = 255;
-
-        if (cy > 0){
-          const upP = (cy-1)*w + cx, upIdx = upP*4;
-          const tolU = onAnyMask(upP) || nearMask(upP) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
-          if (!visited[upP] && !onAnyMask(upP) && colorClose(data[upIdx], data[upIdx+1], data[upIdx+2], sr, sg, sb, tolU)) {
-            if (!spanUp){ stack.push([cx, cy-1]); spanUp = true; }
-          } else spanUp = false;
-        }
-        if (cy < h-1){
-          const dnP = (cy+1)*w + cx, dnIdx = dnP*4;
-          const tolD = onAnyMask(dnP) || nearMask(dnP) ? Math.min(8, Math.floor(tolerance*0.35)) : tolerance;
-          /* FIXED: used to read G channel as B; now correct idx+1 */
-          if (!visited[dnP] && !onAnyMask(dnP) && colorClose(data[dnIdx], data[dnIdx+1], data[dnIdx+2], sr, sg, sb, tolD)) {
-            if (!spanDown){ stack.push([cx, cy+1]); spanDown = true; }
-          } else spanDown = false;
-        }
-        cx++;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-  } finally {
-    isFilling = false; document.body.style.cursor = '';
-  }
-}
-
-/* Utils */
-function hexToRgba(hex){
-  let h = hex.replace('#','');
-  if (h.length===3) h = h.split('').map(c=>c+c).join('');
-  const n=parseInt(h,16);
-  return [(n>>16)&255,(n>>8)&255,n&255,255];
-}
-
 /* Shortcuts */
 document.addEventListener('keydown', (e) => {
-  const k = e.key.toLowerCase();
-  if ((e.ctrlKey||e.metaKey) && !e.shiftKey && k==='z'){ document.getElementById('undo').click(); e.preventDefault(); }
-  if ((e.ctrlKey||e.metaKey) && ((e.shiftKey && k==='z') || k==='y')){ document.getElementById('redo').click(); e.preventDefault(); }
+  const el = document.activeElement;
+  const isForm = el && /INPUT|TEXTAREA|SELECT/.test(el.tagName);
+  const k = (e.key || '').toLowerCase();
+  if ((e.ctrlKey||e.metaKey) && !e.shiftKey && k==='z'){ document.getElementById('undo').click(); e.preventDefault(); return; }
+  if ((e.ctrlKey||e.metaKey) && ((e.shiftKey && k==='z') || k==='y')){ document.getElementById('redo').click(); e.preventDefault(); return; }
+  if (isForm) return;
   if (!e.ctrlKey && !e.metaKey && k==='e'){ setStrokeMode(strokeMode==='erase' ? 'paint' : 'erase'); }
   if (!e.ctrlKey && !e.metaKey && k==='f'){ fillBtn.click(); }
 });
@@ -1081,21 +1055,11 @@ document.getElementById('returnMenu').onclick = () => {
 
   zoomFactor = 1; panX = 0; panY = 0; zoomSlider.value = 100; zoomVal.textContent = '100%'; applyView();
 
-  const toggleBtn = document.getElementById('toggleBp');
-  if (toggleBtn) toggleBtn.textContent = 'Hide Blueprint';
+  document.getElementById('toggleBp').textContent = 'Hide Blueprint';
+  document.getElementById('bpOpacity').value = 30; document.getElementById('bpOpacityVal').textContent = '30%'; blueprintOpacity = 0.30;
 
-  const bpSlider = document.getElementById('bpOpacity');
-  const bpLabel  = document.getElementById('bpOpacityVal');
-  if (bpSlider) bpSlider.value = 30; if (bpLabel) bpLabel.textContent = '30%';
-  blueprintOpacity = 0.30;
-
-  const tFigBtn = document.getElementById('toggleFigure');
-  if (tFigBtn) tFigBtn.textContent = 'Hide Mannequin';
-
-  const figSlider = document.getElementById('figOpacity');
-  const figLabel  = document.getElementById('figOpacityVal');
-  if (figSlider) figSlider.value = 85; if (figLabel) figLabel.textContent = '85%';
-  figureOpacity = 0.85;
+  document.getElementById('toggleFigure').textContent = 'Hide Mannequin';
+  document.getElementById('figOpacity').value = 85; document.getElementById('figOpacityVal').textContent = '85%'; figureOpacity = 0.85;
 
   if (figWallsChk) figWallsChk.checked = false;
 
